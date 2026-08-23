@@ -71,6 +71,7 @@ export async function getTraceabilityByBarcode(barcodeValue) {
       .select(`
         id,
         unit_number,
+        inventory_unit_code,
         status,
         condition,
         quantity,
@@ -78,11 +79,29 @@ export async function getTraceabilityByBarcode(barcodeValue) {
         received_date,
         last_movement_date,
         notes,
+        shelf_number,
+        section_number,
+        subsection_number,
+        position_code,
+        assigned_at,
         warehouses:warehouse_id (
           id,
           code,
           name,
           location
+        ),
+        rack_configurations:rack_id (
+          id,
+          rack_code,
+          rack_number,
+          designated_size,
+          size_category,
+          total_shelves,
+          sections_per_shelf,
+          subsections_per_section,
+          capacity_per_subsection,
+          total_capacity,
+          current_count
         )
       `)
       .eq('barcode_id', barcode.id);

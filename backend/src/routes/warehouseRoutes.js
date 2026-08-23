@@ -10,7 +10,8 @@ import {
   getRacks,
   getRackLocations,
   relocateInventoryUnit,
-  scanInventoryUnit
+  scanInventoryUnit,
+  getRackCapacity
 } from '../controllers/warehouseController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requireRole } from '../middleware/roleMiddleware.js';
@@ -36,6 +37,9 @@ router.get('/racks', authenticate, getRacks);
 
 // Get rack locations
 router.get('/rack-locations', authenticate, getRackLocations);
+
+// Get rack capacity usage (for barcode generation)
+router.get('/warehouses/:warehouseId/racks/:rackId/capacity', authenticate, getRackCapacity);
 
 // ============================================================================
 // OPERATIONAL STAFF & MANAGER ONLY

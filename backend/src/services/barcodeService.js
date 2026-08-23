@@ -69,7 +69,11 @@ export async function createBarcodes({
   quantity,
   warehouseId,
   rackId,
-  rackLocationId
+  rackLocationId,
+  shelfNumber,
+  sectionNumber,
+  subsectionNumber,
+  positionCode
 }) {
   // ---------------------------------------------------------
   // 1. VALIDATION
@@ -143,20 +147,42 @@ export async function createBarcodes({
         // Get all inventory unit IDs from the barcodes
         const inventoryUnitIds = data.barcodes.map(b => b.inventory_unit_id);
 
-        // Update all inventory units with warehouse and rack (store rack_code in 'rack' column)
+        // Prepare update data with hierarchical location fields
+        const updateData = {
+          warehouse_id: warehouseId,
+          rack: rack.rack_code,  // Store rack code in existing 'rack' column
+          assigned_at: new Date().toISOString()
+        };
+
+        // Add hierarchical position data if provided
+        if (shelfNumber) {
+          updateData.shelf_number = parseInt(shelfNumber);
+        }
+        if (sectionNumber) {
+          updateData.section_number = parseInt(sectionNumber);
+        }
+        if (subsectionNumber) {
+          updateData.subsection_number = parseInt(subsectionNumber);
+        }
+        if (positionCode) {
+          updateData.position_code = positionCode;
+        }
+
+        console.log('📦 Update data:', updateData);
+
+        // Update all inventory units with warehouse, rack, and hierarchical position
         const { error: updateError } = await supabaseAdmin
           .from('inventory_units')
-          .update({
-            warehouse_id: warehouseId,
-            rack: rack.rack_code,  // Store rack code in existing 'rack' column
-            assigned_at: new Date().toISOString()
-          })
+          .update(updateData)
           .in('id', inventoryUnitIds);
 
         if (updateError) {
           console.error('⚠️ Failed to update inventory units:', updateError);
         } else {
-          console.log(`✅ Warehouse and rack assigned: ${rack.rack_code} (${inventoryUnitIds.length} units)`);
+          console.log(`✅ Warehouse and hierarchical location assigned: ${rack.rack_code} (${inventoryUnitIds.length} units)`);
+          if (positionCode) {
+            console.log(`📍 Position code: ${positionCode}`);
+          }
           
           // Update rack's current_count by counting actual inventory units
           try {
@@ -202,9 +228,15 @@ export async function createBarcodes({
         const qrCodeData = await QRCode.toDataURL(
           barcode.traceability_url,
           {
-            errorCorrectionLevel: 'M',
-            margin: 2,
-            width: 300
+            errorCorrectionLevel: 'H', // HIGH error correction for better scanning
+            margin: 0, // Remove border/margin
+            width: 512, // Higher resolution (was 300)
+            color: {
+              dark: '#000000', // Pure black for better contrast
+              light: '#FFFFFF' // Pure white background
+            },
+            scale: 8, // Higher scale for print quality
+            type: 'image/png' // PNG for lossless quality
           }
         );
 
@@ -417,6 +449,10 @@ export async function getTraceability(barcodeValue) {
         status,
         warehouse_id,
         rack,
+        shelf_number,
+        section_number,
+        subsection_number,
+        position_code,
         assigned_at,
         received_at,
         last_scanned_at,
@@ -446,7 +482,19 @@ export async function getTraceability(barcodeValue) {
     try {
       const { data: rackData, error: rackError } = await supabaseAdmin
         .from('rack_configurations')
-        .select('id, rack_code, rack_number, designated_size, size_category')
+        .select(`
+          id,
+          rack_code,
+          rack_number,
+          designated_size,
+          size_category,
+          total_shelves,
+          sections_per_shelf,
+          subsections_per_section,
+          capacity_per_subsection,
+          total_capacity,
+          current_count
+        `)
         .eq('rack_code', data.inventory_units.rack)
         .single();
 

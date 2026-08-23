@@ -350,3 +350,160 @@ export async function scanInventoryUnit(req, res) {
     });
   }
 }
+
+/**
+ * GET /api/warehouses/:warehouseId/racks/:rackId/capacity
+ * Get real-time capacity usage for all shelves/sections/subsections in a rack
+ * Returns tire counts with capacity limits
+ */
+export async function getRackCapacity(req, res) {
+  try {
+    const { warehouseId, rackId } = req.params;
+    
+    console.log('📊 GET /api/warehouses/:warehouseId/racks/:rackId/capacity');
+    console.log('   warehouseId:', warehouseId);
+    console.log('   rackId:', rackId);
+
+    if (!warehouseId || !rackId) {
+      return res.status(400).json({
+        success: false,
+        error: 'warehouseId and rackId are required'
+      });
+    }
+
+    // Get rack configuration to know the structure
+    const { data: rack, error: rackError } = await supabaseAdmin
+      .from('rack_configurations')
+      .select('id, rack_code, total_shelves, sections_per_shelf, subsections_per_section')
+      .eq('id', rackId)
+      .eq('warehouse_id', warehouseId)
+      .single();
+
+    if (rackError || !rack) {
+      console.error('❌ Rack not found:', rackError);
+      return res.status(404).json({
+        success: false,
+        error: 'Rack not found'
+      });
+    }
+
+    console.log('📦 Rack config:', rack);
+
+    // Count tires in each location (shelf, section, subsection)
+    // Group by shelf_number, section_number, subsection_number
+    const { data: inventoryUnits, error: inventoryError } = await supabaseAdmin
+      .from('inventory_units')
+      .select('shelf_number, section_number, subsection_number, quantity, warehouse_id, rack, status')
+      .eq('warehouse_id', warehouseId)
+      .eq('rack', rack.rack_code)
+      .in('status', ['NEW', 'pending', 'received', 'available', 'reserved']); // Added 'NEW' status
+
+    if (inventoryError) {
+      console.error('❌ Error fetching inventory units:', inventoryError);
+      throw inventoryError;
+    }
+
+    console.log(`📦 Found ${inventoryUnits?.length || 0} inventory units in this rack`);
+    console.log('📊 Query parameters:', {
+      warehouse_id: warehouseId,
+      rack: rack.rack_code,
+      statuses: ['NEW', 'pending', 'received', 'available', 'reserved']
+    });
+    
+    if (inventoryUnits && inventoryUnits.length > 0) {
+      console.log('📦 Sample unit:', inventoryUnits[0]);
+    } else {
+      console.warn('⚠️ NO INVENTORY UNITS FOUND - checking if any exist at all...');
+      
+      // Debug: Check all inventory units
+      const { data: allUnits } = await supabaseAdmin
+        .from('inventory_units')
+        .select('id, warehouse_id, rack, status, shelf_number')
+        .limit(5);
+      
+      console.log('🔍 Sample of ALL inventory units:', allUnits);
+    }
+
+    // Calculate usage by location
+    const usage = {
+      shelves: {},
+      sections: {},
+      subsections: {}
+    };
+
+    // Process each inventory unit
+    (inventoryUnits || []).forEach(unit => {
+      const qty = unit.quantity || 1;
+      const shelf = unit.shelf_number;
+      const section = unit.section_number;
+      const subsection = unit.subsection_number;
+
+      // Count by shelf
+      if (shelf) {
+        const shelfKey = `shelf_${shelf}`;
+        usage.shelves[shelfKey] = (usage.shelves[shelfKey] || 0) + qty;
+      }
+
+      // Count by section (within shelf)
+      if (shelf && section) {
+        const sectionKey = `shelf_${shelf}_section_${section}`;
+        usage.sections[sectionKey] = (usage.sections[sectionKey] || 0) + qty;
+      }
+
+      // Count by subsection (within section)
+      if (shelf && section && subsection) {
+        const subsectionKey = `shelf_${shelf}_section_${section}_subsection_${subsection}`;
+        usage.subsections[subsectionKey] = (usage.subsections[subsectionKey] || 0) + qty;
+      }
+    });
+
+    // Capacity rules
+    const SECTION_MIN_CAPACITY = 28;
+    const SECTION_MAX_CAPACITY = 30;
+    const SUBSECTION_MIN_CAPACITY = 13;
+    const SUBSECTION_MAX_CAPACITY = 15;
+
+    // Format response with capacity info
+    const result = {
+      rackId: rack.id,
+      rackCode: rack.rack_code,
+      totalShelves: rack.total_shelves,
+      sectionsPerShelf: rack.sections_per_shelf,
+      subsectionsPerSection: rack.subsections_per_section,
+      usage: {
+        shelves: usage.shelves,
+        sections: Object.keys(usage.sections).reduce((acc, key) => {
+          acc[key] = {
+            used: usage.sections[key],
+            minCapacity: SECTION_MIN_CAPACITY,
+            maxCapacity: SECTION_MAX_CAPACITY,
+            percentFull: Math.round((usage.sections[key] / SECTION_MAX_CAPACITY) * 100)
+          };
+          return acc;
+        }, {}),
+        subsections: Object.keys(usage.subsections).reduce((acc, key) => {
+          acc[key] = {
+            used: usage.subsections[key],
+            minCapacity: SUBSECTION_MIN_CAPACITY,
+            maxCapacity: SUBSECTION_MAX_CAPACITY,
+            percentFull: Math.round((usage.subsections[key] / SUBSECTION_MAX_CAPACITY) * 100)
+          };
+          return acc;
+        }, {})
+      }
+    };
+
+    console.log('✅ Capacity calculated:', JSON.stringify(result, null, 2));
+
+    return res.json({
+      success: true,
+      capacity: result
+    });
+  } catch (error) {
+    console.error('❌ Get rack capacity error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to get rack capacity'
+    });
+  }
+}

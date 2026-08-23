@@ -43,13 +43,15 @@ async function generateQRCode(barcodeValue) {
     const traceabilityUrl = `${env.frontendUrl || 'http://localhost:5174'}/trace/${barcodeValue}`;
     
     const qrDataUrl = await QRCode.toDataURL(traceabilityUrl, {
-      errorCorrectionLevel: 'M',
-      width: 300,
-      margin: 2,
+      errorCorrectionLevel: 'H', // HIGH error correction for better scanning
+      width: 512, // Higher resolution (was 300)
+      margin: 0, // Remove border
       color: {
-        dark: '#000000',
-        light: '#FFFFFF',
+        dark: '#000000', // Pure black
+        light: '#FFFFFF', // Pure white
       },
+      scale: 8, // Higher scale for print quality
+      type: 'image/png' // PNG for lossless quality
     });
 
     return {

@@ -56,8 +56,19 @@ export default function BarcodeGeneration() {
     shipmentId: '',
     warehouseId: '',
     rackId: '',
-    rackLocationId: ''
+    rackLocationId: '',
+    shelfNumber: '',
+    sectionNumber: '',
+    subsectionNumber: ''
   });
+
+  // NEW: Rack configuration data for hierarchical selection
+  const [selectedRackConfig, setSelectedRackConfig] = useState(null);
+  const [availablePositionCode, setAvailablePositionCode] = useState('');
+  
+  // NEW: Capacity tracking data
+  const [capacityData, setCapacityData] = useState(null);
+  const [loadingCapacity, setLoadingCapacity] = useState(false);
 
   // Load barcode configuration
   useEffect(() => {
@@ -91,6 +102,104 @@ export default function BarcodeGeneration() {
       }
     }
   }, [formData.warehouseId, formData.productId]);
+
+  // NEW: Update position code preview when rack location selections change
+  useEffect(() => {
+    if (formData.rackId && formData.shelfNumber && formData.sectionNumber && formData.subsectionNumber) {
+      const selectedRack = racks.find(r => r.id === formData.rackId);
+      if (selectedRack) {
+        const positionCode = `${selectedRack.rack_code}-S${formData.shelfNumber}-SEC${formData.sectionNumber}-SUB${formData.subsectionNumber}`;
+        setAvailablePositionCode(positionCode);
+      }
+    } else {
+      setAvailablePositionCode('');
+    }
+  }, [formData.rackId, formData.shelfNumber, formData.sectionNumber, formData.subsectionNumber, racks]);
+
+  // NEW: Load rack configuration when rack is selected
+  useEffect(() => {
+    if (formData.rackId) {
+      const rack = racks.find(r => r.id === formData.rackId);
+      setSelectedRackConfig(rack || null);
+    } else {
+      setSelectedRackConfig(null);
+    }
+  }, [formData.rackId, racks]);
+
+  // NEW: Fetch capacity data when warehouse and rack are selected
+  useEffect(() => {
+    const fetchCapacityData = async () => {
+      if (formData.warehouseId && formData.rackId) {
+        setLoadingCapacity(true);
+        try {
+          const { data } = await api.get(`/warehouses/${formData.warehouseId}/racks/${formData.rackId}/capacity`);
+          if (data?.success && data?.capacity) {
+            setCapacityData(data.capacity);
+            console.log('📊 Capacity data loaded:', data.capacity);
+          }
+        } catch (err) {
+          console.error('❌ Failed to load capacity data:', err);
+          setCapacityData(null);
+        } finally {
+          setLoadingCapacity(false);
+        }
+      } else {
+        setCapacityData(null);
+      }
+    };
+
+    fetchCapacityData();
+  }, [formData.warehouseId, formData.rackId]);
+
+  // Helper function to get capacity display info
+  const getCapacityDisplay = (type, shelf, section, subsection) => {
+    if (!capacityData || !capacityData.usage) return null;
+
+    let key, data, maxCapacity;
+
+    if (type === 'shelf') {
+      key = `shelf_${shelf}`;
+      data = capacityData.usage.shelves[key] || 0;
+      // Shelf capacity is sum of all its sections
+      maxCapacity = (capacityData.sectionsPerShelf || 6) * 30; // sections * max per section
+    } else if (type === 'section') {
+      key = `shelf_${shelf}_section_${section}`;
+      data = capacityData.usage.sections[key];
+      if (data) {
+        return {
+          used: data.used,
+          max: data.maxCapacity,
+          percent: data.percentFull,
+          indicator: data.percentFull < 80 ? '🟢' : data.percentFull <= 100 ? '🟡' : '🔴'
+        };
+      }
+      return { used: 0, max: 30, percent: 0, indicator: '🟢' };
+    } else if (type === 'subsection') {
+      key = `shelf_${shelf}_section_${section}_subsection_${subsection}`;
+      data = capacityData.usage.subsections[key];
+      if (data) {
+        return {
+          used: data.used,
+          max: data.maxCapacity,
+          percent: data.percentFull,
+          indicator: data.percentFull < 80 ? '🟢' : data.percentFull <= 100 ? '🟡' : '🔴'
+        };
+      }
+      return { used: 0, max: 15, percent: 0, indicator: '🟢' };
+    }
+
+    if (typeof data === 'number') {
+      const percent = Math.round((data / maxCapacity) * 100);
+      return {
+        used: data,
+        max: maxCapacity,
+        percent,
+        indicator: percent < 80 ? '🟢' : percent <= 100 ? '🟡' : '🔴'
+      };
+    }
+
+    return null;
+  };
 
   const loadConfig = async () => {
     try {
@@ -346,6 +455,19 @@ export default function BarcodeGeneration() {
       if (formData.rackLocationId) {
         requestData.rackLocationId = formData.rackLocationId;
       }
+      // NEW: Add hierarchical position data
+      if (formData.shelfNumber) {
+        requestData.shelfNumber = parseInt(formData.shelfNumber);
+      }
+      if (formData.sectionNumber) {
+        requestData.sectionNumber = parseInt(formData.sectionNumber);
+      }
+      if (formData.subsectionNumber) {
+        requestData.subsectionNumber = parseInt(formData.subsectionNumber);
+      }
+      if (availablePositionCode) {
+        requestData.positionCode = availablePositionCode;
+      }
 
       const { data } = await api.post('/barcodes', requestData);
 
@@ -373,10 +495,15 @@ export default function BarcodeGeneration() {
           shipmentId: '',
           warehouseId: '',
           rackId: '',
-          rackLocationId: ''
+          rackLocationId: '',
+          shelfNumber: '',
+          sectionNumber: '',
+          subsectionNumber: ''
         });
         setBatchQuantity(1);
         setRacks([]); // Clear rack list since warehouse was cleared
+        setSelectedRackConfig(null);
+        setAvailablePositionCode('');
         
         // Reload all barcodes to ensure we have the latest data
         await loadGeneratedBarcodes();
@@ -652,15 +779,15 @@ export default function BarcodeGeneration() {
               align-items: center;
               padding: 5px;
               background: #ffffff;
-              border: 1px solid #e0e0e0;
-              border-radius: 3px;
+              border: none; /* Remove border */
+              border-radius: 0;
             }
             .barcode-container {
               width: 100%;
               display: flex;
               justify-content: center;
               align-items: center;
-              height: 50px;
+              height: 65px; /* Increased from 50px */
               margin-bottom: 3px;
             }
             svg#barcode {
@@ -675,11 +802,11 @@ export default function BarcodeGeneration() {
               text-align: center;
               color: #000;
               padding: 2px;
-              background: #f9f9f9;
-              border-radius: 2px;
+              background: transparent; /* Remove background */
+              border-radius: 0;
             }
             .qr-section { 
-              flex: 0 0 65px;
+              flex: 0 0 80px; /* Increased from 65px */
               display: flex;
               flex-direction: column;
               align-items: center;
@@ -688,9 +815,9 @@ export default function BarcodeGeneration() {
               padding-left: 8px;
             }
             .qr-section img { 
-              width: 65px; 
-              height: 65px;
-              border: 2px solid #000;
+              width: 80px; /* Increased from 65px */
+              height: 80px; /* Increased from 65px */
+              border: none; /* Remove border */
               border-radius: 3px;
               background: white;
             }
@@ -795,12 +922,13 @@ export default function BarcodeGeneration() {
                 console.log('Generating barcode for: ${barcode.barcode_value}');
                 JsBarcode("#barcode", "${barcode.barcode_value}", {
                   format: "CODE128",
-                  width: 1.8,
-                  height: 45,
+                  width: 2.5, // Increased width for better scanning (was 1.8)
+                  height: 60, // Increased height (was 45)
                   displayValue: false,
-                  margin: 3,
+                  margin: 0, // Remove margin/border (was 3)
                   background: "#ffffff",
-                  lineColor: "#000000"
+                  lineColor: "#000000",
+                  flat: true // Flat rendering for print quality
                 });
                 console.log('Barcode generated successfully');
                 
@@ -894,18 +1022,23 @@ export default function BarcodeGeneration() {
             }
             body { 
               font-family: 'Segoe UI', Arial, sans-serif; 
-              padding: 15px;
+              padding: 10px;
               background: #f5f5f5;
+              display: flex;
+              flex-wrap: wrap; /* Allow wrapping */
+              justify-content: space-between; /* Space between columns */
+              align-content: flex-start;
             }
             .label { 
               border: 3px solid #000; 
-              padding: 14px; 
-              width: 3.75in; 
+              padding: 12px; 
+              width: 48%; /* Two columns with 48% each (2% gap) */
               min-height: 2.25in;
-              margin-bottom: 20px; 
+              margin-bottom: 15px; 
               page-break-inside: avoid;
               background: white;
               box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+              box-sizing: border-box;
             }
             .header { 
               font-size: 12px; 
@@ -931,15 +1064,15 @@ export default function BarcodeGeneration() {
               align-items: center;
               padding: 6px;
               background: #ffffff;
-              border: 1px solid #e0e0e0;
-              border-radius: 4px;
+              border: none; /* Remove border */
+              border-radius: 0;
             }
             .barcode-container {
               width: 100%;
               display: flex;
               justify-content: center;
               align-items: center;
-              min-height: 55px;
+              min-height: 70px; /* Increased from 55px */
               margin-bottom: 5px;
             }
             svg {
@@ -954,11 +1087,11 @@ export default function BarcodeGeneration() {
               text-align: center; 
               color: #000;
               padding: 3px;
-              background: #f9f9f9;
-              border-radius: 3px;
+              background: transparent; /* Remove background */
+              border-radius: 0;
             }
             .qr-section { 
-              flex: 0 0 75px; 
+              flex: 0 0 85px; /* Increased from 75px */
               display: flex;
               flex-direction: column;
               align-items: center;
@@ -967,10 +1100,10 @@ export default function BarcodeGeneration() {
               padding-left: 10px;
             }
             .qr-section img { 
-              width: 70px; 
-              height: 70px;
-              border: 2px solid #000;
-              border-radius: 4px;
+              width: 85px; /* Increased from 70px */
+              height: 85px; /* Increased from 70px */
+              border: none; /* Remove border */
+              border-radius: 0;
               background: white;
             }
             .qr-label { 
@@ -1003,12 +1136,17 @@ export default function BarcodeGeneration() {
             @media print { 
               body { 
                 margin: 0; 
-                padding: 15px;
+                padding: 10px;
                 background: white;
+                display: flex;
+                flex-wrap: wrap; /* Two columns via flex wrap */
+                justify-content: space-between;
               }
               .label {
                 page-break-inside: avoid;
                 box-shadow: none;
+                width: 48%; /* 48% width for 2 columns */
+                margin-bottom: 15px;
               }
             }
           </style>
@@ -1031,12 +1169,13 @@ export default function BarcodeGeneration() {
                 try {
                   JsBarcode("#barcode-${index}", "${barcode.barcode_value}", {
                     format: "CODE128",
-                    width: 2.5,
-                    height: 50,
+                    width: 2.5, // Increased for better scanning
+                    height: 65, // Increased from 50
                     displayValue: false,
-                    margin: 5,
+                    margin: 0, // Remove margin (was 5)
                     background: "#ffffff",
-                    lineColor: "#000000"
+                    lineColor: "#000000",
+                    flat: true // Flat rendering for print quality
                   });
                   successCount++;
                 } catch(e) {
@@ -1589,9 +1728,9 @@ export default function BarcodeGeneration() {
                         shipmentId: batch?.shipment_id || ''
                       });
                     }}
-                    className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none"
+                    className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
                   >
-                    <option value="">Choose a batch...</option>
+                    <option value="" disabled>Choose a batch...</option>
                     {batches.map(batch => (
                       <option key={batch.id} value={batch.id}>
                         {batch.batch_number} - {batch.products?.brand || 'Unknown'} {batch.products?.model || 'Product'} ({batch.batch_month}/{batch.batch_year})
@@ -1641,13 +1780,17 @@ export default function BarcodeGeneration() {
                               ...formData,
                               warehouseId: e.target.value,
                               rackId: '',
-                              rackLocationId: ''
+                              rackLocationId: '',
+                              shelfNumber: '',
+                              sectionNumber: '',
+                              subsectionNumber: ''
                             });
                             setRacks([]);
+                            setSelectedRackConfig(null);
                           }}
-                          className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none"
+                          className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
                         >
-                          <option value="">Select Warehouse...</option>
+                          <option value="" disabled>Select Warehouse...</option>
                           {warehouses.map(wh => (
                             <option key={wh.id} value={wh.id}>
                               {wh.name} ({wh.code})
@@ -1663,12 +1806,15 @@ export default function BarcodeGeneration() {
                               setFormData({
                                 ...formData,
                                 rackId: e.target.value,
-                                rackLocationId: ''
+                                rackLocationId: '',
+                                shelfNumber: '',
+                                sectionNumber: '',
+                                subsectionNumber: ''
                               });
                             }}
-                            className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none"
+                            className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
                           >
-                            <option value="">Select Rack...</option>
+                            <option value="" disabled>Select Rack...</option>
                             {racks.map(rack => (
                               <option key={rack.id} value={rack.id}>
                                 {rack.rack_code} - {rack.designated_size} ({rack.current_count}/{rack.total_capacity} used)
@@ -1677,13 +1823,121 @@ export default function BarcodeGeneration() {
                           </select>
                         )}
 
-                        {/* Position Info - Auto-assign only */}
-                        {formData.rackId && (
+                        {/* Hierarchical Position Selectors */}
+                        {formData.rackId && selectedRackConfig && (
+                          <div className="space-y-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                            <div className="text-xs font-bold text-amber-900 mb-2">📍 Select Exact Position</div>
+                            
+                            {/* Shelf Selector */}
+                            <div>
+                              <label className="text-[10px] font-semibold text-amber-800 block mb-1">
+                                🗄️ Shelf (1-{selectedRackConfig.total_shelves || 4})
+                              </label>
+                              <select
+                                value={formData.shelfNumber}
+                                onChange={(e) => {
+                                  setFormData({
+                                    ...formData,
+                                    shelfNumber: e.target.value,
+                                    sectionNumber: '',
+                                    subsectionNumber: ''
+                                  });
+                                }}
+                                className="w-full px-2 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-xs font-bold text-blue-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none cursor-pointer"
+                              >
+                                <option value="" disabled>Choose shelf...</option>
+                                {Array.from({ length: selectedRackConfig.total_shelves || 4 }, (_, i) => i + 1).map(num => {
+                                  const capacity = getCapacityDisplay('shelf', num);
+                                  return (
+                                    <option key={num} value={num}>
+                                      Shelf {num}{capacity ? ` (${capacity.used}/${capacity.max} tires) ${capacity.indicator}` : ''}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            </div>
+
+                            {/* Section Selector */}
+                            {formData.shelfNumber && (
+                              <div>
+                                <label className="text-[10px] font-semibold text-amber-800 block mb-1">
+                                  📦 Section (1-{selectedRackConfig.sections_per_shelf || 6})
+                                </label>
+                                <select
+                                  value={formData.sectionNumber}
+                                  onChange={(e) => {
+                                    setFormData({
+                                      ...formData,
+                                      sectionNumber: e.target.value,
+                                      subsectionNumber: ''
+                                    });
+                                  }}
+                                  className="w-full px-2 py-1.5 rounded-lg border border-purple-300 bg-purple-50 text-xs font-bold text-purple-900 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none cursor-pointer"
+                                >
+                                  <option value="" disabled>Choose section...</option>
+                                  {Array.from({ length: selectedRackConfig.sections_per_shelf || 6 }, (_, i) => i + 1).map(num => {
+                                    const capacity = getCapacityDisplay('section', formData.shelfNumber, num);
+                                    return (
+                                      <option key={num} value={num}>
+                                        Section {num}{capacity ? ` (${capacity.used}/${capacity.max} tires) ${capacity.indicator}` : ''}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Subsection Selector */}
+                            {formData.sectionNumber && (
+                              <div>
+                                <label className="text-[10px] font-semibold text-amber-800 block mb-1">
+                                  🔖 Subsection (1-{selectedRackConfig.subsections_per_section || 2})
+                                </label>
+                                <select
+                                  value={formData.subsectionNumber}
+                                  onChange={(e) => {
+                                    setFormData({
+                                      ...formData,
+                                      subsectionNumber: e.target.value
+                                    });
+                                  }}
+                                  className="w-full px-2 py-1.5 rounded-lg border border-amber-400 bg-amber-100 text-xs font-bold text-amber-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
+                                >
+                                  <option value="" disabled>Choose subsection...</option>
+                                  {Array.from({ length: selectedRackConfig.subsections_per_section || 2 }, (_, i) => i + 1).map(num => {
+                                    const capacity = getCapacityDisplay('subsection', formData.shelfNumber, formData.sectionNumber, num);
+                                    return (
+                                      <option key={num} value={num}>
+                                        Subsection {num}{capacity ? ` (${capacity.used}/${capacity.max} tires) ${capacity.indicator}` : ''}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Position Code Preview */}
+                            {availablePositionCode && (
+                              <div className="mt-3 p-2 rounded-lg bg-emerald-50 border-2 border-emerald-400">
+                                <div className="text-[10px] font-semibold text-emerald-700 mb-1">✅ Position Code</div>
+                                <div className="font-mono text-xs font-black text-emerald-900 break-all text-center">
+                                  {availablePositionCode}
+                                </div>
+                                <div className="text-[9px] text-emerald-600 mt-1 text-center">
+                                  This exact location will be assigned to the barcode
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Position Info - Show only if rack selected but no detailed position */}
+                        {formData.rackId && !selectedRackConfig && (
                           <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center gap-2">
                             <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
-                            <span className="font-semibold">Position will be auto-assigned</span>
+                            <span className="font-semibold">Loading rack configuration...</span>
                           </div>
                         )}
                       </div>
@@ -1731,11 +1985,45 @@ export default function BarcodeGeneration() {
                 <button
                   type="button"
                   onClick={handleGenerateBatch}
-                  disabled={loading || !formData.batchId || batchQuantity < 1}
-                  className="w-full px-3 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  disabled={
+                    loading || 
+                    !formData.batchId || 
+                    batchQuantity < 1 ||
+                    !formData.warehouseId ||
+                    !formData.rackId ||
+                    !formData.shelfNumber ||
+                    !formData.sectionNumber ||
+                    !formData.subsectionNumber
+                  }
+                  className="w-full px-3 py-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-1.5"
                 >
-                  {loading ? 'Generating...' : `Generate ${batchQuantity} Barcode${batchQuantity > 1 ? 's' : ''}`}
+                  {loading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <ScanBarcode className="w-3.5 h-3.5" />
+                      Generate {batchQuantity} Barcode{batchQuantity > 1 ? 's' : ''}
+                    </>
+                  )}
                 </button>
+
+                {/* Validation Helper Text */}
+                {formData.batchId && (
+                  <div className="text-[10px] text-amber-700 flex items-start gap-1 mt-1">
+                    <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                    <div>
+                      {!formData.warehouseId && <div>⚠️ Select warehouse</div>}
+                      {formData.warehouseId && !formData.rackId && <div>⚠️ Select rack</div>}
+                      {formData.rackId && !formData.shelfNumber && <div>⚠️ Select shelf</div>}
+                      {formData.shelfNumber && !formData.sectionNumber && <div>⚠️ Select section</div>}
+                      {formData.sectionNumber && !formData.subsectionNumber && <div>⚠️ Select subsection</div>}
+                      {formData.subsectionNumber && <div className="text-emerald-600 flex items-center gap-1">✓ All selections complete!</div>}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -2156,7 +2444,7 @@ export default function BarcodeGeneration() {
                       </div>
                     )}
 
-                    {/* WAREHOUSE LOCATION - COMPACT & PROMINENT */}
+                    {/* WAREHOUSE LOCATION - HIERARCHICAL DISPLAY */}
                     {traceabilityData.inventory_units && (
                       <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-green-500 to-teal-500 rounded-xl p-5 border-2 border-emerald-300 shadow-lg">
                         {/* Decorative background */}
@@ -2169,71 +2457,108 @@ export default function BarcodeGeneration() {
                               <MapPin className="w-6 h-6 text-white" />
                             </div>
                             <div>
-                              <h3 className="text-xl font-black text-white">📍 Warehouse Location</h3>
-                              <p className="text-emerald-50 text-xs font-medium">Exact storage position for returns</p>
+                              <h3 className="text-xl font-black text-white">📍 Exact Storage Location</h3>
+                              <p className="text-emerald-50 text-xs font-medium">Precise hierarchical position</p>
                             </div>
                           </div>
 
                           {/* Main Location Display */}
-                          <div className="bg-white/95 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-white/50">
-                            <div className="text-center">
-                              <p className="text-xs font-semibold text-emerald-700 mb-2 uppercase tracking-wide">Current Location</p>
-                              <div className="space-y-2">
-                                {/* Warehouse Name */}
-                                <div>
-                                  <p className="text-3xl font-black text-emerald-900">
-                                    {traceabilityData.inventory_units.warehouses?.name || 'No Warehouse'}
-                                  </p>
-                                  <p className="text-xs text-slate-500 font-mono mt-1">
-                                    {traceabilityData.inventory_units.warehouses?.code || 'N/A'}
-                                  </p>
-                                </div>
-
-                                {/* Rack Code */}
-                                {traceabilityData.inventory_units.rack_configurations ? (
-                                  <div className="pt-3 border-t border-emerald-200">
-                                    <div className="flex items-center justify-center gap-1.5 mb-1.5">
-                                      <Boxes className="w-4 h-4 text-emerald-600" />
-                                      <p className="text-xs font-bold text-emerald-700 uppercase">Rack Position</p>
-                                    </div>
-                                    <p className="text-3xl font-black text-emerald-800">
+                          <div className="bg-white/95 backdrop-blur-sm rounded-xl p-4 shadow-lg border border-white/50 space-y-3">
+                            {/* Warehouse */}
+                            <div className="text-center pb-3 border-b-2 border-emerald-200">
+                              <p className="text-[10px] font-bold text-emerald-700 mb-1.5 uppercase tracking-wide">🏢 Warehouse</p>
+                              <p className="text-2xl font-black text-emerald-900">
+                                {traceabilityData.inventory_units.warehouses?.name || 'Not Assigned'}
+                              </p>
+                              <p className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                                {traceabilityData.inventory_units.warehouses?.code || 'N/A'}
+                              </p>
+                            </div>
+                              
+                            {/* Hierarchical Location Breakdown */}
+                            {traceabilityData.inventory_units.rack_configurations ? (
+                              <div className="space-y-2.5">
+                                {/* Rack */}
+                                <div className="flex items-center justify-between p-2.5 bg-emerald-50 rounded-lg border border-emerald-200">
+                                  <div className="flex items-center gap-1.5">
+                                    <Boxes className="w-4 h-4 text-emerald-600" />
+                                    <span className="text-xs font-bold text-emerald-900">Rack</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-base font-black text-emerald-800">
                                       {traceabilityData.inventory_units.rack_configurations.rack_code}
                                     </p>
-                                    <p className="text-xs text-slate-600 mt-1.5">
+                                    <p className="text-[9px] text-slate-600">
                                       {traceabilityData.inventory_units.rack_configurations.designated_size}
                                     </p>
-                                    <div className="flex items-center justify-center gap-2 mt-2">
-                                      <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-bold">
-                                        {traceabilityData.inventory_units.rack_configurations.size_category || 'General'}
-                                      </span>
-                                      <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
-                                        Rack #{traceabilityData.inventory_units.rack_configurations.rack_number}
-                                      </span>
-                                    </div>
                                   </div>
-                                ) : traceabilityData.inventory_units.rack ? (
-                                  <div className="pt-3 border-t border-emerald-200">
-                                    <div className="flex items-center justify-center gap-1.5 mb-1.5">
-                                      <Boxes className="w-4 h-4 text-emerald-600" />
-                                      <p className="text-xs font-bold text-emerald-700 uppercase">Rack Position</p>
+                                </div>
+
+                                {/* Position Details - Shelf, Section, Subsection */}
+                                {(traceabilityData.inventory_units.shelf_number || 
+                                  traceabilityData.inventory_units.section_number || 
+                                  traceabilityData.inventory_units.subsection_number ||
+                                  traceabilityData.inventory_units.position_code) && (
+                                  <>
+                                    <div className="grid grid-cols-3 gap-1.5">
+                                      {/* Shelf */}
+                                      {traceabilityData.inventory_units.shelf_number && (
+                                        <div className="text-center p-2 bg-blue-50 rounded-lg border border-blue-200">
+                                          <div className="text-[9px] font-semibold text-blue-700 mb-0.5">🗄️ Shelf</div>
+                                          <p className="text-lg font-black text-blue-900">
+                                            {traceabilityData.inventory_units.shelf_number}
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {/* Section */}
+                                      {traceabilityData.inventory_units.section_number && (
+                                        <div className="text-center p-2 bg-purple-50 rounded-lg border border-purple-200">
+                                          <div className="text-[9px] font-semibold text-purple-700 mb-0.5">📦 Section</div>
+                                          <p className="text-lg font-black text-purple-900">
+                                            {traceabilityData.inventory_units.section_number}
+                                          </p>
+                                        </div>
+                                      )}
+
+                                      {/* Subsection */}
+                                      {traceabilityData.inventory_units.subsection_number && (
+                                        <div className="text-center p-2 bg-amber-50 rounded-lg border border-amber-200">
+                                          <div className="text-[9px] font-semibold text-amber-700 mb-0.5">🔖 Subsection</div>
+                                          <p className="text-lg font-black text-amber-900">
+                                            {traceabilityData.inventory_units.subsection_number}
+                                          </p>
+                                        </div>
+                                      )}
                                     </div>
-                                    <p className="text-3xl font-black text-emerald-800">
-                                      {traceabilityData.inventory_units.rack}
-                                    </p>
-                                  </div>
-                                ) : (
-                                  <div className="pt-3 border-t border-amber-200">
-                                    <div className="flex items-center justify-center gap-1.5 mb-1.5">
-                                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                                      <p className="text-xs font-bold text-amber-700 uppercase">Not Assigned</p>
-                                    </div>
-                                    <p className="text-lg font-bold text-amber-800">
-                                      No rack location assigned yet
-                                    </p>
-                                  </div>
+
+                                    {/* Full Position Code */}
+                                    {traceabilityData.inventory_units.position_code && (
+                                      <div className="p-2.5 bg-slate-50 rounded-lg border-2 border-slate-300">
+                                        <p className="text-[9px] font-bold text-slate-600 mb-1 text-center uppercase tracking-wide">📍 Complete Position Code</p>
+                                        <p className="text-center font-mono text-xs font-black text-slate-900 break-all">
+                                          {traceabilityData.inventory_units.position_code}
+                                        </p>
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
-                            </div>
+                            ) : traceabilityData.inventory_units.rack ? (
+                              <div className="text-center p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                <Boxes className="w-5 h-5 text-emerald-600 mx-auto mb-1.5" />
+                                <p className="text-sm font-bold text-emerald-900">
+                                  {traceabilityData.inventory_units.rack}
+                                </p>
+                                <p className="text-[10px] text-slate-600 mt-0.5">Rack assigned (no detailed position)</p>
+                              </div>
+                            ) : (
+                              <div className="text-center p-3 bg-amber-50 rounded-lg border border-amber-200">
+                                <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto mb-1.5" />
+                                <p className="text-xs font-semibold text-amber-800">No Rack Location Assigned</p>
+                                <p className="text-[10px] text-amber-600 mt-0.5">This tire needs to be assigned to a storage location</p>
+                              </div>
+                            )}
                           </div>
 
                           {/* Additional Details - Compact */}

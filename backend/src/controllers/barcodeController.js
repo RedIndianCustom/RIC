@@ -35,7 +35,11 @@ export async function createBarcodeController(req, res) {
       quantity = 1,
       warehouseId,
       rackId,
-      rackLocationId
+      rackLocationId,
+      shelfNumber,
+      sectionNumber,
+      subsectionNumber,
+      positionCode
     } = req.body;
 
     console.log('📦 Barcode generation request:', {
@@ -45,7 +49,11 @@ export async function createBarcodeController(req, res) {
       quantity,
       warehouseId,
       rackId,
-      rackLocationId
+      rackLocationId,
+      shelfNumber,
+      sectionNumber,
+      subsectionNumber,
+      positionCode
     });
 
     const result = await createBarcodes({
@@ -55,7 +63,11 @@ export async function createBarcodeController(req, res) {
       quantity: Number(quantity),
       warehouseId,
       rackId,
-      rackLocationId
+      rackLocationId,
+      shelfNumber,
+      sectionNumber,
+      subsectionNumber,
+      positionCode
     });
 
     return res.status(201).json({

@@ -55,10 +55,10 @@ import OrderManagement     from '../pages/dashboard/operational/OrderManagement.
 import PackingSlip         from '../pages/dashboard/operational/PackingSlip.jsx';
 import ReturnProcessing    from '../pages/dashboard/operational/ReturnProcessing.jsx';
 import Waybill             from '../pages/dashboard/operational/Waybill.jsx';
+import ScanBarcode         from '../pages/dashboard/operational/ScanBarcode.jsx';
 
 // ── Warehouse Staff ───────────────────────────────────────────
 import Receiving           from '../pages/dashboard/warehouse/Receiving.jsx';
-import BarcodeScanner      from '../pages/dashboard/warehouse/BarcodeScanner.jsx';
 import ScanProducts        from '../pages/dashboard/warehouse/ScanProducts.jsx';
 import InventoryCount      from '../pages/dashboard/warehouse/InventoryCount.jsx';
 import LocationLookup      from '../pages/dashboard/warehouse/LocationLookup.jsx';
@@ -181,6 +181,15 @@ export default function AppRoutes() {
           </Route>
 
           {/* ══════════════════════════════════════════════════
+              SHARED: OPERATIONAL + WAREHOUSE STAFF
+              (Scanning, Returns, Physical Operations)
+          ═══════════════════════════════════════════════════ */}
+          <Route element={<RoleRoute allowed={[OP, WH, A]} />}>
+            <Route path="/barcode/scan-returns" element={<ScanBarcode />} />
+            <Route path="/scan-barcode"         element={<ScanBarcode />} />
+          </Route>
+
+          {/* ══════════════════════════════════════════════════
               WAREHOUSE STAFF
           ═══════════════════════════════════════════════════ */}
           <Route element={<RoleRoute allowed={[WH, M, A]} />}>
@@ -266,7 +275,7 @@ export default function AppRoutes() {
 
           {/* Barcode Scanner: Warehouse(full) | Sales(verify) | Operational(monitoring) */}
           <Route element={<RoleRoute allowed={[WH, SA, OP, A]} />}>
-            <Route path="/barcode/scan" element={<BarcodeScanner />} />
+            <Route path="/barcode/scan" element={<ScanBarcode />} />
           </Route>
 
           {/* Suppliers: Admin(full) | Manager(full) | Operational(full) | Sales/Warehouse(view) */}

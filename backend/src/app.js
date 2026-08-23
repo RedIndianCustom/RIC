@@ -24,6 +24,7 @@ import shipmentRoutes from './routes/shipmentRoutes.js';
 import batchRoutes from './routes/batchRoutes.js';
 import warehouseLocationRoutes from './routes/warehouseLocationRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import inventoryRoutes from './routes/inventoryRoutes.js';
 
 const app = express();
 
@@ -53,6 +54,9 @@ app.use('/api', warehouseRoutes);
 app.use('/api/capacity-rules', capacityRuleRoutes);
 app.use('/api/barcodes', barcodeRoutes);
 app.use('/api/traceability', traceabilityRoutes);
+
+// Inventory Units
+app.use('/api/inventory-units', inventoryRoutes);
 
 // Orders & Returns
 app.use('/api/orders', orderRoutes);
