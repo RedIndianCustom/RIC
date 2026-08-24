@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Package, Search, Calendar, Truck, CheckCircle2, XCircle, 
@@ -40,6 +40,31 @@ export default function ShipmentRegistration() {
       return () => clearTimeout(timer);
     }
   }, [alert]);
+  
+  // Prevent formData reset when editing shipment
+  useEffect(() => {
+    if (editingShipment && showForm) {
+      // Only update if formData is empty/default
+      if (formData.product_breakdown.length === 0 && 
+          editingShipment.product_breakdown && 
+          editingShipment.product_breakdown.length > 0) {
+        console.log('🔧 Restoring product_breakdown from editingShipment:', editingShipment.product_breakdown);
+        setFormData(prev => ({
+          ...prev,
+          product_breakdown: JSON.parse(JSON.stringify(editingShipment.product_breakdown))
+        }));
+      }
+    }
+  }, [showForm, editingShipment]);
+  
+  // DEBUG: Log formData changes
+  useEffect(() => {
+    console.log('🔄 formData changed:');
+    console.log('   product_breakdown length:', formData.product_breakdown?.length);
+    if (formData.product_breakdown && formData.product_breakdown.length > 0) {
+      console.log('   Products:', formData.product_breakdown);
+    }
+  }, [formData.product_breakdown]);
 
   const loadData = async () => {
     try {
@@ -72,18 +97,28 @@ export default function ShipmentRegistration() {
         expected_quantity: calculatedQuantity || formData.expected_quantity
       };
       
+      console.log('💾 Saving shipment...');
+      console.log('📦 formData.product_breakdown:', formData.product_breakdown);
+      console.log('📊 Product count:', formData.product_breakdown?.length);
+      console.log('📤 Full submission data:', JSON.stringify(submissionData, null, 2));
+      
       if (editingShipment) {
-        await updateShipment(editingShipment.id, submissionData);
+        console.log(`✏️ UPDATING shipment: ${editingShipment.id}`);
+        const result = await updateShipment(editingShipment.id, submissionData);
+        console.log('✅ Update result:', result);
         setAlert({ type: 'success', message: 'Shipment updated successfully!' });
       } else {
-        await createShipment(submissionData);
+        console.log('➕ CREATING new shipment');
+        const result = await createShipment(submissionData);
+        console.log('✅ Create result:', result);
         setAlert({ type: 'success', message: 'Shipment created successfully!' });
       }
 
       resetForm();
       await loadData();
     } catch (err) {
-      console.error('Error saving shipment:', err);
+      console.error('❌ Error saving shipment:', err);
+      console.error('❌ Error response:', err.response?.data);
       setAlert({ type: 'error', message: err.response?.data?.error || 'Failed to save shipment' });
     } finally {
       setLoading(false);
@@ -91,12 +126,26 @@ export default function ShipmentRegistration() {
   };
 
   const handleEdit = (shipment) => {
-    console.log('📝 Editing shipment:', shipment.shipment_number);
-    console.log('📦 Product breakdown:', shipment.product_breakdown);
+    console.log('📝 ========== EDITING SHIPMENT ==========');
+    console.log('📝 Shipment number:', shipment.shipment_number);
+    console.log('📦 RAW shipment object:', shipment);
+    console.log('📦 product_breakdown field:', shipment.product_breakdown);
+    console.log('📦 product_breakdown type:', typeof shipment.product_breakdown);
+    console.log('📦 product_breakdown is array?:', Array.isArray(shipment.product_breakdown));
     console.log('📊 Products length:', shipment.product_breakdown?.length);
     
-    setEditingShipment(shipment);
-    setFormData({
+    if (shipment.product_breakdown) {
+      console.log('📦 Product breakdown content:', JSON.stringify(shipment.product_breakdown, null, 2));
+    }
+    
+    // Show alert to user if no products
+    if (!shipment.product_breakdown || shipment.product_breakdown.length === 0) {
+      console.warn(`⚠️ Shipment ${shipment.shipment_number} has NO products - you can add them now!`);
+    } else {
+      console.log(`✅ Shipment has ${shipment.product_breakdown.length} products - they should load into the form`);
+    }
+    
+    const formDataToSet = {
       supplier_id: shipment.supplier_id || '',
       shipment_number: shipment.shipment_number || '',
       container_number: shipment.container_number || '',
@@ -104,8 +153,17 @@ export default function ShipmentRegistration() {
       expected_quantity: shipment.expected_quantity || '',
       expected_arrival_date: shipment.expected_arrival_date || '',
       notes: shipment.notes || '',
-      product_breakdown: shipment.product_breakdown || [] // Load existing products!
-    });
+      product_breakdown: Array.isArray(shipment.product_breakdown) ? JSON.parse(JSON.stringify(shipment.product_breakdown)) : [] // Deep clone!
+    };
+    
+    console.log('📤 Setting formData to:', formDataToSet);
+    console.log('📤 formData.product_breakdown:', formDataToSet.product_breakdown);
+    console.log('📤 formData.product_breakdown length:', formDataToSet.product_breakdown?.length);
+    console.log('========================================\n');
+    
+    // Set editing shipment and formData TOGETHER in one update
+    setEditingShipment(shipment);
+    setFormData(formDataToSet);
     setShowForm(true);
   };
 

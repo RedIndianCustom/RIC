@@ -43,6 +43,9 @@ export async function fetchShipments(params = {}) {
   if (params.supplier_id) queryParams.append('supplier_id', params.supplier_id);
   if (params.limit) queryParams.append('limit', params.limit);
   if (params.offset) queryParams.append('offset', params.offset);
+  
+  // Add cache-busting timestamp to ensure fresh data
+  queryParams.append('_t', Date.now());
 
   const response = await api.get(`/shipments?${queryParams.toString()}`);
   return response.data;

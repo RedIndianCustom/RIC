@@ -162,8 +162,13 @@ export async function createShipment(req, res) {
       bl_number,
       expected_quantity,
       expected_arrival_date,
-      notes
+      notes,
+      product_breakdown // ✅ ADD THIS!
     } = req.body;
+
+    console.log('📝 Creating shipment...');
+    console.log('📦 Product breakdown received:', product_breakdown);
+    console.log('📊 Product count:', product_breakdown?.length);
 
     // Validation
     if (!supplier_id) {
@@ -189,7 +194,8 @@ export async function createShipment(req, res) {
         expected_quantity: expected_quantity || 0,
         expected_arrival_date,
         status: 'PENDING',
-        notes
+        notes,
+        product_breakdown: product_breakdown || [] // ✅ SAVE IT!
       })
       .select(`
         *,
@@ -203,7 +209,7 @@ export async function createShipment(req, res) {
       .single();
 
     if (error) {
-      console.error('Error creating shipment:', error);
+      console.error('❌ Error creating shipment:', error);
       
       if (error.code === '23505') { // Unique violation
         return res.status(409).json({
@@ -217,6 +223,10 @@ export async function createShipment(req, res) {
         details: error.message
       });
     }
+
+    console.log('✅ Shipment created successfully');
+    console.log('📦 Saved product_breakdown:', data.product_breakdown);
+    console.log('📊 Saved product count:', data.product_breakdown?.length);
 
     res.status(201).json({
       success: true,
@@ -241,9 +251,16 @@ export async function updateShipment(req, res) {
     const { id } = req.params;
     const updates = req.body;
 
+    console.log('📝 Updating shipment:', id);
+    console.log('📦 Updates received:', JSON.stringify(updates, null, 2));
+    console.log('📊 Product breakdown in request:', updates.product_breakdown);
+    console.log('📊 Product breakdown length:', updates.product_breakdown?.length);
+
     // Remove fields that shouldn't be updated directly
     delete updates.id;
     delete updates.created_at;
+
+    console.log('📤 Sending to database:', JSON.stringify(updates, null, 2));
 
     const { data, error } = await supabaseAdmin
       .from('shipments')
@@ -267,12 +284,16 @@ export async function updateShipment(req, res) {
         });
       }
 
-      console.error('Error updating shipment:', error);
+      console.error('❌ Error updating shipment:', error);
       return res.status(500).json({
         error: 'Failed to update shipment',
         details: error.message
       });
     }
+
+    console.log('✅ Shipment updated successfully');
+    console.log('📦 Updated product_breakdown:', data.product_breakdown);
+    console.log('📊 Updated product count:', data.product_breakdown?.length);
 
     res.json({
       success: true,

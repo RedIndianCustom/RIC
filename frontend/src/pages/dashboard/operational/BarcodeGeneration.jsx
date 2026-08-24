@@ -252,12 +252,27 @@ export default function BarcodeGeneration() {
     try {
       const { data } = await api.get('/batches');
       console.log('📦 Loaded batches:', data);
-      setBatches(data.batches || []);
+      
       if (data.batches && data.batches.length > 0) {
         console.log(`✅ Successfully loaded ${data.batches.length} batches`);
+        console.log('🔍 First batch structure:', data.batches[0]);
+        console.log('🔍 First batch products:', data.batches[0]?.products);
+        
+        // Check if products field exists
+        const batchesWithProducts = data.batches.filter(b => b.products);
+        const batchesWithoutProducts = data.batches.filter(b => !b.products);
+        
+        console.log(`✅ Batches with products: ${batchesWithProducts.length}`);
+        console.log(`⚠️ Batches without products: ${batchesWithoutProducts.length}`);
+        
+        if (batchesWithoutProducts.length > 0) {
+          console.warn('⚠️ Some batches missing product data:', batchesWithoutProducts);
+        }
       } else {
         console.warn('⚠️ No batches found in database');
       }
+      
+      setBatches(data.batches || []);
     } catch (err) {
       console.error('❌ Error loading batches:', err);
       setBatches([]);
@@ -1728,14 +1743,30 @@ export default function BarcodeGeneration() {
                         shipmentId: batch?.shipment_id || ''
                       });
                     }}
-                    className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
+                    className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer bg-white"
                   >
                     <option value="" disabled>Choose a batch...</option>
-                    {batches.map(batch => (
-                      <option key={batch.id} value={batch.id}>
-                        {batch.batch_number} - {batch.products?.brand || 'Unknown'} {batch.products?.model || 'Product'} ({batch.batch_month}/{batch.batch_year})
-                      </option>
-                    ))}
+                    {batches.map(batch => {
+                      const product = batch.products;
+                      let productInfo;
+                      
+                      if (product) {
+                        // Batch has a single assigned product
+                        productInfo = `${product.brand || 'Unknown'} ${product.model || 'Product'} - ${product.sku || ''}`;
+                      } else if (batch.shipments?.product_breakdown?.length > 0) {
+                        // Batch has multiple products in shipment
+                        const productCount = batch.shipments.product_breakdown.length;
+                        productInfo = `${productCount} Products in Shipment (${batch.shipments.shipment_number})`;
+                      } else {
+                        productInfo = 'No Product Info';
+                      }
+                      
+                      return (
+                        <option key={batch.id} value={batch.id}>
+                          {batch.batch_number} | {productInfo} ({batch.batch_month}/{batch.batch_year})
+                        </option>
+                      );
+                    })}
                   </select>
                   {batches.length === 0 && !initialLoading && (
                     <p className="mt-1 text-xs text-amber-700">
@@ -1744,23 +1775,131 @@ export default function BarcodeGeneration() {
                   )}
                 </div>
 
-                {/* Product Display */}
-                {formData.batchId && (
-                  <div>
-                    <label className="text-xs font-bold text-amber-900 block mb-1.5">
-                      Product (from batch)
-                    </label>
-                    <div className="px-3 py-2 rounded-lg bg-white border border-amber-200 text-xs text-slate-700">
-                      {(() => {
-                        const batch = batches.find(b => b.id === formData.batchId);
-                        const product = batch?.products;
-                        return product 
-                          ? `${product.sku} - ${product.brand} ${product.model} (${product.dimensions})`
-                          : 'N/A';
-                      })()}
+                {/* Product Display - Enhanced */}
+                {formData.batchId && (() => {
+                  const batch = batches.find(b => b.id === formData.batchId);
+                  const product = batch?.products;
+                  const shipmentProducts = batch?.shipments?.product_breakdown;
+                  
+                  // Case 1: Batch has a single assigned product
+                  if (product) {
+                    return (
+                      <div>
+                        <label className="text-xs font-bold text-amber-900 block mb-1.5 flex items-center gap-1">
+                          <Package className="w-3.5 h-3.5" />
+                          Product Details (Auto-filled from Batch)
+                        </label>
+                        <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 shadow-sm">
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                              <span className="font-semibold text-emerald-800">SKU:</span>
+                              <p className="text-slate-700 font-mono mt-0.5">{product.sku || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <span className="font-semibold text-emerald-800">Brand:</span>
+                              <p className="text-slate-700 mt-0.5">{product.brand || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <span className="font-semibold text-emerald-800">Model:</span>
+                              <p className="text-slate-700 mt-0.5">{product.model || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <span className="font-semibold text-emerald-800">Dimensions:</span>
+                              <p className="text-slate-700 mt-0.5">{product.dimensions || 'N/A'}</p>
+                            </div>
+                            {product.category && (
+                              <div className="col-span-2">
+                                <span className="font-semibold text-emerald-800">Category:</span>
+                                <p className="text-slate-700 mt-0.5">{product.category}</p>
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-2 pt-2 border-t border-emerald-200 flex items-center gap-1 text-[10px] text-emerald-700">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span className="font-medium">Product automatically selected from batch</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Case 2: Batch has multiple products from shipment
+                  if (shipmentProducts && shipmentProducts.length > 0) {
+                    return (
+                      <div>
+                        <label className="text-xs font-bold text-amber-900 block mb-1.5 flex items-center gap-1">
+                          <Package className="w-3.5 h-3.5" />
+                          Select Product from Shipment *
+                        </label>
+                        <div className="space-y-2">
+                          <select
+                            value={formData.productId}
+                            onChange={(e) => setFormData({ ...formData, productId: e.target.value })}
+                            className="w-full px-3 py-2 rounded-lg border border-blue-200 text-xs focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none cursor-pointer bg-white"
+                          >
+                            <option value="" disabled>Choose a product from shipment...</option>
+                            {shipmentProducts.map((item, idx) => {
+                              // Find matching product in products list
+                              const matchingProduct = products.find(p => {
+                                const sizeDimMatch = p.dimensions === item.size;
+                                const catMatch = p.category?.toLowerCase() === item.category?.toLowerCase();
+                                return sizeDimMatch || (catMatch && p.dimensions?.includes(item.size));
+                              });
+                              
+                              return (
+                                <option key={idx} value={matchingProduct?.id || `temp-${idx}`}>
+                                  {item.category} - {item.size} ({item.quantity} units)
+                                  {matchingProduct ? ` | ${matchingProduct.sku}` : ' | No SKU Found'}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          
+                          {formData.productId && (() => {
+                            const selectedProduct = products.find(p => p.id === formData.productId);
+                            if (selectedProduct) {
+                              return (
+                                <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 shadow-sm">
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div>
+                                      <span className="font-semibold text-blue-800">SKU:</span>
+                                      <p className="text-slate-700 font-mono mt-0.5">{selectedProduct.sku || 'N/A'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold text-blue-800">Brand:</span>
+                                      <p className="text-slate-700 mt-0.5">{selectedProduct.brand || 'N/A'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold text-blue-800">Model:</span>
+                                      <p className="text-slate-700 mt-0.5">{selectedProduct.model || 'N/A'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold text-blue-800">Dimensions:</span>
+                                      <p className="text-slate-700 mt-0.5">{selectedProduct.dimensions || 'N/A'}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+                          })()}
+                          
+                          <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+                            <p className="text-[10px] text-amber-800">
+                              📦 <strong>{shipmentProducts.length} products</strong> available in shipment {batch?.shipments?.shipment_number}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // Case 3: No product information at all
+                  return (
+                    <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+                      ⚠️ No product information available for this batch
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Warehouse Location Section */}
                 {formData.batchId && (
@@ -1775,10 +1914,11 @@ export default function BarcodeGeneration() {
                       <div className="space-y-2">
                         <select
                           value={formData.warehouseId}
-                          onChange={(e) => {
+                          onChange={async (e) => {
+                            const warehouseId = e.target.value;
                             setFormData({
                               ...formData,
-                              warehouseId: e.target.value,
+                              warehouseId: warehouseId,
                               rackId: '',
                               rackLocationId: '',
                               shelfNumber: '',
@@ -1787,6 +1927,9 @@ export default function BarcodeGeneration() {
                             });
                             setRacks([]);
                             setSelectedRackConfig(null);
+                            
+                            // Load racks for the selected warehouse
+                            await loadAllRacksForWarehouse(warehouseId);
                           }}
                           className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
                         >
@@ -1798,32 +1941,104 @@ export default function BarcodeGeneration() {
                           ))}
                         </select>
 
-                        {/* Rack Selector */}
+                        {/* Rack Selector - HARDCODED FOR TESTING */}
                         {formData.warehouseId && (
                           <select
                             value={formData.rackId}
                             onChange={(e) => {
+                              const rackId = e.target.value;
                               setFormData({
                                 ...formData,
-                                rackId: e.target.value,
+                                rackId: rackId,
                                 rackLocationId: '',
                                 shelfNumber: '',
                                 sectionNumber: '',
                                 subsectionNumber: ''
                               });
+                              
+                              // HARDCODED: Set rack config when rack is selected
+                              if (rackId) {
+                                const hardcodedRacks = {
+                                  'RACK-1': {
+                                    id: 'RACK-1',
+                                    rack_code: 'WH1-RACK-1',
+                                    designated_size: '90/90-18',
+                                    total_shelves: 4,
+                                    sections_per_shelf: 5,
+                                    subsections_per_section: 2,
+                                    capacity_per_subsection: 15,
+                                    total_capacity: 600
+                                  },
+                                  'RACK-2': {
+                                    id: 'RACK-2',
+                                    rack_code: 'WH1-RACK-2',
+                                    designated_size: '100/90-17',
+                                    total_shelves: 4,
+                                    sections_per_shelf: 5,
+                                    subsections_per_section: 2,
+                                    capacity_per_subsection: 15,
+                                    total_capacity: 600
+                                  },
+                                  'RACK-3': {
+                                    id: 'RACK-3',
+                                    rack_code: 'WH1-RACK-3',
+                                    designated_size: '110/90-17',
+                                    total_shelves: 4,
+                                    sections_per_shelf: 5,
+                                    subsections_per_section: 2,
+                                    capacity_per_subsection: 15,
+                                    total_capacity: 600
+                                  },
+                                  'RACK-4': {
+                                    id: 'RACK-4',
+                                    rack_code: 'WH1-RACK-4',
+                                    designated_size: '120/80-17',
+                                    total_shelves: 4,
+                                    sections_per_shelf: 4,
+                                    subsections_per_section: 2,
+                                    capacity_per_subsection: 15,
+                                    total_capacity: 480
+                                  },
+                                  'RACK-5': {
+                                    id: 'RACK-5',
+                                    rack_code: 'WH1-RACK-5',
+                                    designated_size: 'General',
+                                    total_shelves: 5,
+                                    sections_per_shelf: 6,
+                                    subsections_per_section: 2,
+                                    capacity_per_subsection: 15,
+                                    total_capacity: 900
+                                  }
+                                };
+                                
+                                setSelectedRackConfig(hardcodedRacks[rackId] || null);
+                              } else {
+                                setSelectedRackConfig(null);
+                              }
                             }}
                             className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
                           >
                             <option value="" disabled>Select Rack...</option>
-                            {racks.map(rack => (
-                              <option key={rack.id} value={rack.id}>
-                                {rack.rack_code} - {rack.designated_size} ({rack.current_count}/{rack.total_capacity} used)
-                              </option>
-                            ))}
+                            {/* HARDCODED RACKS - Replace with API data when DB is fixed */}
+                            {racks.length > 0 ? (
+                              racks.map(rack => (
+                                <option key={rack.id} value={rack.id}>
+                                  {rack.rack_code} - {rack.designated_size} ({rack.current_count}/{rack.total_capacity} used)
+                                </option>
+                              ))
+                            ) : (
+                              <>
+                                <option value="RACK-1">WH1-RACK-1 - 90/90-18 Sawtooth (0/600 used)</option>
+                                <option value="RACK-2">WH1-RACK-2 - 100/90-17 Dual Sport (0/600 used)</option>
+                                <option value="RACK-3">WH1-RACK-3 - 110/90-17 Sawtooth (0/600 used)</option>
+                                <option value="RACK-4">WH1-RACK-4 - 120/80-17 Enduro (0/480 used)</option>
+                                <option value="RACK-5">WH1-RACK-5 - General (0/900 used)</option>
+                              </>
+                            )}
                           </select>
                         )}
 
-                        {/* Hierarchical Position Selectors */}
+                        {/* Hierarchical Position Selectors - HARDCODED FOR TESTING */}
                         {formData.rackId && selectedRackConfig && (
                           <div className="space-y-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
                             <div className="text-xs font-bold text-amber-900 mb-2">📍 Select Exact Position</div>
@@ -1846,14 +2061,11 @@ export default function BarcodeGeneration() {
                                 className="w-full px-2 py-1.5 rounded-lg border border-blue-300 bg-blue-50 text-xs font-bold text-blue-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none cursor-pointer"
                               >
                                 <option value="" disabled>Choose shelf...</option>
-                                {Array.from({ length: selectedRackConfig.total_shelves || 4 }, (_, i) => i + 1).map(num => {
-                                  const capacity = getCapacityDisplay('shelf', num);
-                                  return (
-                                    <option key={num} value={num}>
-                                      Shelf {num}{capacity ? ` (${capacity.used}/${capacity.max} tires) ${capacity.indicator}` : ''}
-                                    </option>
-                                  );
-                                })}
+                                {Array.from({ length: selectedRackConfig.total_shelves || 4 }, (_, i) => i + 1).map(num => (
+                                  <option key={num} value={num}>
+                                    Shelf {num}
+                                  </option>
+                                ))}
                               </select>
                             </div>
 
@@ -1875,14 +2087,11 @@ export default function BarcodeGeneration() {
                                   className="w-full px-2 py-1.5 rounded-lg border border-purple-300 bg-purple-50 text-xs font-bold text-purple-900 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 outline-none cursor-pointer"
                                 >
                                   <option value="" disabled>Choose section...</option>
-                                  {Array.from({ length: selectedRackConfig.sections_per_shelf || 6 }, (_, i) => i + 1).map(num => {
-                                    const capacity = getCapacityDisplay('section', formData.shelfNumber, num);
-                                    return (
-                                      <option key={num} value={num}>
-                                        Section {num}{capacity ? ` (${capacity.used}/${capacity.max} tires) ${capacity.indicator}` : ''}
-                                      </option>
-                                    );
-                                  })}
+                                  {Array.from({ length: selectedRackConfig.sections_per_shelf || 6 }, (_, i) => i + 1).map(num => (
+                                    <option key={num} value={num}>
+                                      Section {num}
+                                    </option>
+                                  ))}
                                 </select>
                               </div>
                             )}
@@ -1904,14 +2113,11 @@ export default function BarcodeGeneration() {
                                   className="w-full px-2 py-1.5 rounded-lg border border-amber-400 bg-amber-100 text-xs font-bold text-amber-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
                                 >
                                   <option value="" disabled>Choose subsection...</option>
-                                  {Array.from({ length: selectedRackConfig.subsections_per_section || 2 }, (_, i) => i + 1).map(num => {
-                                    const capacity = getCapacityDisplay('subsection', formData.shelfNumber, formData.sectionNumber, num);
-                                    return (
-                                      <option key={num} value={num}>
-                                        Subsection {num}{capacity ? ` (${capacity.used}/${capacity.max} tires) ${capacity.indicator}` : ''}
-                                      </option>
-                                    );
-                                  })}
+                                  {Array.from({ length: selectedRackConfig.subsections_per_section || 2 }, (_, i) => i + 1).map(num => (
+                                    <option key={num} value={num}>
+                                      Subsection {num}
+                                    </option>
+                                  ))}
                                 </select>
                               </div>
                             )}
