@@ -33,6 +33,7 @@ export async function getBatches(req, res) {
           shipment_number,
           container_number,
           bl_number,
+          product_breakdown,
           suppliers:supplier_id (
             id,
             name
@@ -105,6 +106,7 @@ export async function getBatchById(req, res) {
           shipment_number,
           container_number,
           bl_number,
+          product_breakdown,
           expected_arrival_date,
           received_date,
           suppliers:supplier_id (
@@ -175,10 +177,6 @@ export async function createBatch(req, res) {
       return res.status(400).json({ error: 'shipment_id is required' });
     }
 
-    if (!product_id) {
-      return res.status(400).json({ error: 'product_id is required' });
-    }
-
     if (!batch_number) {
       return res.status(400).json({ error: 'batch_number is required' });
     }
@@ -204,17 +202,19 @@ export async function createBatch(req, res) {
       });
     }
 
-    // Verify product exists
-    const { data: product, error: productError } = await supabaseAdmin
-      .from('products')
-      .select('id')
-      .eq('id', product_id)
-      .single();
+    // Verify product exists (if provided)
+    if (product_id) {
+      const { data: product, error: productError } = await supabaseAdmin
+        .from('products')
+        .select('id')
+        .eq('id', product_id)
+        .single();
 
-    if (productError || !product) {
-      return res.status(404).json({
-        error: 'Product not found'
-      });
+      if (productError || !product) {
+        return res.status(404).json({
+          error: 'Product not found'
+        });
+      }
     }
 
     // Create batch
@@ -243,7 +243,8 @@ export async function createBatch(req, res) {
         shipments:shipment_id (
           id,
           shipment_number,
-          container_number
+          container_number,
+          product_breakdown
         )
       `)
       .single();
@@ -307,7 +308,8 @@ export async function updateBatch(req, res) {
         ),
         shipments:shipment_id (
           id,
-          shipment_number
+          shipment_number,
+          product_breakdown
         )
       `)
       .single();
@@ -409,6 +411,11 @@ export async function getBatchesByShipment(req, res) {
           brand,
           model,
           dimensions
+        ),
+        shipments:shipment_id (
+          id,
+          shipment_number,
+          product_breakdown
         )
       `)
       .eq('shipment_id', shipmentId)

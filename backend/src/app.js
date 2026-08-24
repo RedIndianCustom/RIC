@@ -13,6 +13,7 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 import warehouseRoutes from './routes/warehouseRoutes.js';
 import orderRoutes from './routes/orderRoutes.js';
 import supplierRoutes from './routes/supplierRoutes.js';
+import purchaseOrderRoutes from './routes/purchaseOrderRoutes.js';
 import productRoutes from './routes/productRoutes.js';
 import capacityRuleRoutes from './routes/capacityRuleRoutes.js';
 import barcodeRoutes from './routes/barcodeRoutes.js';
@@ -62,8 +63,9 @@ app.use('/api/inventory-units', inventoryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/returns', orderRoutes);
 
-// Suppliers
+// Suppliers & Purchase Orders
 app.use('/api/suppliers', supplierRoutes);
+app.use('/api/purchase-orders', purchaseOrderRoutes);
 
 // Shipments & Batches
 app.use('/api/shipments', shipmentRoutes);

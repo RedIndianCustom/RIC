@@ -26,7 +26,8 @@ export default function ShipmentRegistration() {
     bl_number: '',
     expected_quantity: '',
     expected_arrival_date: '',
-    notes: ''
+    notes: '',
+    product_breakdown: [] // NEW: Array of {category, size, quantity}
   });
 
   useEffect(() => {
@@ -64,11 +65,18 @@ export default function ShipmentRegistration() {
     try {
       setLoading(true);
       
+      // Auto-calculate expected_quantity from product breakdown
+      const calculatedQuantity = getTotalBreakdownQty();
+      const submissionData = {
+        ...formData,
+        expected_quantity: calculatedQuantity || formData.expected_quantity
+      };
+      
       if (editingShipment) {
-        await updateShipment(editingShipment.id, formData);
+        await updateShipment(editingShipment.id, submissionData);
         setAlert({ type: 'success', message: 'Shipment updated successfully!' });
       } else {
-        await createShipment(formData);
+        await createShipment(submissionData);
         setAlert({ type: 'success', message: 'Shipment created successfully!' });
       }
 
@@ -83,6 +91,10 @@ export default function ShipmentRegistration() {
   };
 
   const handleEdit = (shipment) => {
+    console.log('📝 Editing shipment:', shipment.shipment_number);
+    console.log('📦 Product breakdown:', shipment.product_breakdown);
+    console.log('📊 Products length:', shipment.product_breakdown?.length);
+    
     setEditingShipment(shipment);
     setFormData({
       supplier_id: shipment.supplier_id || '',
@@ -91,7 +103,8 @@ export default function ShipmentRegistration() {
       bl_number: shipment.bl_number || '',
       expected_quantity: shipment.expected_quantity || '',
       expected_arrival_date: shipment.expected_arrival_date || '',
-      notes: shipment.notes || ''
+      notes: shipment.notes || '',
+      product_breakdown: shipment.product_breakdown || [] // Load existing products!
     });
     setShowForm(true);
   };
@@ -120,10 +133,58 @@ export default function ShipmentRegistration() {
       bl_number: '',
       expected_quantity: '',
       expected_arrival_date: '',
-      notes: ''
+      notes: '',
+      product_breakdown: []
     });
     setEditingShipment(null);
     setShowForm(false);
+  };
+
+  // Product breakdown helpers
+  const TIRE_CATEGORIES = [
+    'Dual Sport',
+    'Sawtooth',
+    'Enduro',
+    'Trail',
+    'Scooter'
+  ];
+
+  const TIRE_SIZES = [
+    '90/90-17',
+    '100/90-17',
+    '110/90-17',
+    '120/80-17',
+    '130/80-17',
+    '90/90-18',
+    '100/90-18',
+    '120/80-18',
+    '90/90-19',
+    '150/60-17'
+  ];
+
+  const addProductLine = () => {
+    setFormData({
+      ...formData,
+      product_breakdown: [
+        ...formData.product_breakdown,
+        { category: '', size: '', quantity: '' }
+      ]
+    });
+  };
+
+  const removeProductLine = (index) => {
+    const newBreakdown = formData.product_breakdown.filter((_, i) => i !== index);
+    setFormData({ ...formData, product_breakdown: newBreakdown });
+  };
+
+  const updateProductLine = (index, field, value) => {
+    const newBreakdown = [...formData.product_breakdown];
+    newBreakdown[index] = { ...newBreakdown[index], [field]: value };
+    setFormData({ ...formData, product_breakdown: newBreakdown });
+  };
+
+  const getTotalBreakdownQty = () => {
+    return formData.product_breakdown.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0);
   };
 
   const getStatusConfig = (status) => {
@@ -427,6 +488,152 @@ export default function ShipmentRegistration() {
                     </div>
                   </div>
 
+                  {/* Product Breakdown Section - MOVED TO TOP */}
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-2">
+                        <div className="p-2 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg">
+                          <Layers className="h-4 w-4 text-white" />
+                        </div>
+                        <h3 className="text-lg font-semibold text-slate-800">Product Breakdown</h3>
+                      </div>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        type="button"
+                        onClick={addProductLine}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-lg text-xs font-medium shadow-md hover:shadow-lg transition-all"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Add Product
+                      </motion.button>
+                    </div>
+
+                    {formData.product_breakdown.length === 0 ? (
+                      <div className="text-center py-8 px-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50">
+                        <Package className="h-10 w-10 text-slate-400 mx-auto mb-3" />
+                        <p className="text-sm text-slate-600 font-medium">No products added yet</p>
+                        <p className="text-xs text-slate-500 mt-1">Click "Add Product" to specify tire categories and sizes</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {formData.product_breakdown.map((item, index) => (
+                          <motion.div
+                            key={index}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 20 }}
+                            className="flex gap-3 items-start p-4 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl border border-slate-200"
+                          >
+                            <div className="flex-1 grid grid-cols-3 gap-3">
+                              {/* Category */}
+                              <div>
+                                <label className="block text-xs font-medium text-slate-700 mb-1.5">Category *</label>
+                                <select
+                                  value={item.category || ''}
+                                  onChange={(e) => updateProductLine(index, 'category', e.target.value)}
+                                  required
+                                  className="w-full px-3 py-2 text-sm border-2 border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all bg-white"
+                                >
+                                  <option value="">Select...</option>
+                                  {TIRE_CATEGORIES.map(cat => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Size */}
+                              <div>
+                                <label className="block text-xs font-medium text-slate-700 mb-1.5">Size *</label>
+                                <select
+                                  value={item.size || ''}
+                                  onChange={(e) => updateProductLine(index, 'size', e.target.value)}
+                                  required
+                                  className="w-full px-3 py-2 text-sm border-2 border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all bg-white"
+                                >
+                                  <option value="">Select...</option>
+                                  {TIRE_SIZES.map(size => (
+                                    <option key={size} value={size}>{size}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Quantity */}
+                              <div>
+                                <label className="block text-xs font-medium text-slate-700 mb-1.5">Qty *</label>
+                                <input
+                                  type="number"
+                                  value={item.quantity || ''}
+                                  onChange={(e) => {
+                                    updateProductLine(index, 'quantity', e.target.value);
+                                    // Auto-update expected_quantity
+                                    setTimeout(() => {
+                                      const newTotal = getTotalBreakdownQty();
+                                      setFormData(prev => ({ ...prev, expected_quantity: newTotal }));
+                                    }, 0);
+                                  }}
+                                  required
+                                  min="1"
+                                  placeholder="0"
+                                  className="w-full px-3 py-2 text-sm border-2 border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Action buttons */}
+                            <div className="flex gap-1 mt-6">
+                              {/* Add (duplicate) button - only show on last item if there are 4+ items */}
+                              {index === formData.product_breakdown.length - 1 && formData.product_breakdown.length >= 4 && (
+                                <motion.button
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  type="button"
+                                  onClick={() => {
+                                    // Duplicate current line
+                                    const newBreakdown = [...formData.product_breakdown];
+                                    newBreakdown.splice(index + 1, 0, { ...item, quantity: '' });
+                                    setFormData({ ...formData, product_breakdown: newBreakdown });
+                                  }}
+                                  className="p-2 text-teal-600 hover:bg-teal-50 rounded-lg transition-colors"
+                                  title="Add more"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </motion.button>
+                              )}
+
+                              {/* Remove button - always show */}
+                              <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                type="button"
+                                onClick={() => {
+                                  removeProductLine(index);
+                                  // Auto-update expected_quantity after removal
+                                  setTimeout(() => {
+                                    const newTotal = getTotalBreakdownQty();
+                                    setFormData(prev => ({ ...prev, expected_quantity: newTotal }));
+                                  }, 0);
+                                }}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Remove"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </motion.button>
+                            </div>
+                          </motion.div>
+                        ))}
+
+                        {/* Total Summary */}
+                        {formData.product_breakdown.length > 0 && (
+                          <div className="flex items-center justify-between p-4 bg-gradient-to-r from-teal-50 to-cyan-50 rounded-xl border-2 border-teal-200">
+                            <span className="text-sm font-semibold text-teal-800">Total Breakdown Quantity:</span>
+                            <span className="text-xl font-bold text-teal-700">{getTotalBreakdownQty()} tires</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Quantity & Schedule Section */}
                   <div>
                     <div className="flex items-center space-x-2 mb-4">
@@ -437,15 +644,16 @@ export default function ShipmentRegistration() {
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Expected Quantity</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Expected Quantity (Auto-calculated)</label>
                         <input
                           type="number"
-                          value={formData.expected_quantity}
-                          onChange={(e) => setFormData({ ...formData, expected_quantity: e.target.value })}
+                          value={getTotalBreakdownQty()}
+                          readOnly
                           min="0"
-                          placeholder="100"
-                          className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
+                          placeholder="Add products to calculate"
+                          className="w-full px-4 py-2.5 border-2 border-slate-300 bg-slate-100 rounded-xl text-slate-700 font-semibold cursor-not-allowed"
                         />
+                        <p className="text-xs text-slate-500 mt-1">Automatically calculated from product breakdown</p>
                       </div>
 
                       <div>

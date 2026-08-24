@@ -29,7 +29,7 @@ router.put('/:id',
 );
 
 router.delete('/:id',
-  authorize('admin'),
+  authorize('admin', 'manager', 'operational_staff'),
   supplierController.deleteSupplier
 );
 

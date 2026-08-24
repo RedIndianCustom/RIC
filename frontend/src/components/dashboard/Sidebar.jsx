@@ -304,6 +304,13 @@ const NAVIGATION = [
         roles: ['admin', 'manager', 'operational_staff'],
       },
       {
+        id: 'purchase-orders',
+        label: 'Purchase Orders',
+        icon: FileText,
+        path: '/purchase-orders',
+        roles: ['admin', 'manager', 'operational_staff'],
+      },
+      {
         id: 'batches',
         label: 'Batch Management',
         icon: Layers,

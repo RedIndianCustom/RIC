@@ -42,8 +42,9 @@ export default function Modal({ isOpen, title, onClose, children, footer, size =
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/75 px-4 backdrop-blur-lg"
       onClick={onClose}
+      style={{ backdropFilter: 'blur(12px)' }}
     >
       <div
         className={`w-full ${maxW} rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col max-h-[90vh]`}

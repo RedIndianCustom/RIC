@@ -4,7 +4,7 @@ const variants = {
   danger: 'bg-red-600 text-white hover:bg-red-700',
 };
 
-export default function Button({ variant = 'primary', className = '', loading, children, disabled, ...props }) {
+export default function Button({ variant = 'primary', className = '', loading, children, disabled, icon: Icon, ...props }) {
   return (
     <button
       disabled={disabled || loading}
@@ -12,6 +12,7 @@ export default function Button({ variant = 'primary', className = '', loading, c
       {...props}
     >
       {loading && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/60 border-t-transparent" />}
+      {Icon && <Icon size={18} />}
       {children}
     </button>
   );

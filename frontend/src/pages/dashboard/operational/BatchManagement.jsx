@@ -32,6 +32,24 @@ import {
   fetchProducts
 } from '../../../services/api';
 
+// Add custom scrollbar styles
+const scrollbarStyles = `
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(248, 250, 252, 0.5);
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #f97316 0%, #dc2626 100%);
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #ea580c 0%, #b91c1c 100%);
+  }
+`;
+
 export default function BatchManagement() {
   const [batches, setBatches] = useState([]);
   const [shipments, setShipments] = useState([]);
@@ -48,14 +66,39 @@ export default function BatchManagement() {
   // Form state
   const [formData, setFormData] = useState({
     shipment_id: '',
-    product_id: '',
     batch_number: '',
     batch_month: new Date().getMonth() + 1,
     batch_year: new Date().getFullYear(),
     manufactured_date: '',
     expiry_date: '',
-    notes: ''
+    notes: '',
+    // Additional display fields (not sent to API)
+    container_number: '',
+    bl_number: '',
+    product_breakdown: []
   });
+
+  // Auto-fill shipment details when shipment is selected
+  const handleShipmentChange = (shipmentId) => {
+    const selectedShipment = shipments.find(s => s.id === shipmentId);
+    if (selectedShipment) {
+      setFormData(prev => ({
+        ...prev,
+        shipment_id: shipmentId,
+        container_number: selectedShipment.container_number || '',
+        bl_number: selectedShipment.bl_number || '',
+        product_breakdown: selectedShipment.product_breakdown || []
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        shipment_id: '',
+        container_number: '',
+        bl_number: '',
+        product_breakdown: []
+      }));
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -69,7 +112,7 @@ export default function BatchManagement() {
       setLoading(true);
       const [batchesData, shipmentsData, productsData] = await Promise.all([
         fetchBatches({ status: statusFilter }),
-        fetchShipments({ status: 'RECEIVED' }),
+        fetchShipments(), // Remove RECEIVED filter to show ALL shipments
         fetchProducts({ status: 'In Stock' })
       ]);
       
@@ -132,15 +175,22 @@ export default function BatchManagement() {
 
   const handleEdit = (batch) => {
     setEditingBatch(batch);
+    
+    // Find the shipment to get container, BL, and products
+    const batchShipment = shipments.find(s => s.id === batch.shipment_id);
+    
     setFormData({
       shipment_id: batch.shipment_id || '',
-      product_id: batch.product_id || '',
       batch_number: batch.batch_number || '',
       batch_month: batch.batch_month || new Date().getMonth() + 1,
       batch_year: batch.batch_year || new Date().getFullYear(),
       manufactured_date: batch.manufactured_date || '',
       expiry_date: batch.expiry_date || '',
-      notes: batch.notes || ''
+      notes: batch.notes || '',
+      // Auto-fill shipment details for edit mode
+      container_number: batchShipment?.container_number || batch.shipments?.container_number || '',
+      bl_number: batchShipment?.bl_number || batch.shipments?.bl_number || '',
+      product_breakdown: batchShipment?.product_breakdown || []
     });
     setShowForm(true);
   };
@@ -165,13 +215,15 @@ export default function BatchManagement() {
   const resetForm = () => {
     setFormData({
       shipment_id: '',
-      product_id: '',
       batch_number: '',
       batch_month: new Date().getMonth() + 1,
       batch_year: new Date().getFullYear(),
       manufactured_date: '',
       expiry_date: '',
-      notes: ''
+      notes: '',
+      container_number: '',
+      bl_number: '',
+      product_breakdown: []
     });
     setEditingBatch(null);
     setShowForm(false);
@@ -209,6 +261,9 @@ export default function BatchManagement() {
 
   return (
     <div className="bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 -m-6 p-6 min-h-screen">
+      {/* Inject custom scrollbar styles */}
+      <style>{scrollbarStyles}</style>
+      
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -387,20 +442,30 @@ export default function BatchManagement() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Shipment */}
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      <Ship className="w-4 h-4 inline mr-1" />
+              <form onSubmit={handleSubmit} className="p-8 space-y-8">
+                {/* Section 1: Shipment Selection */}
+                <div>
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                        <Ship className="w-4 h-4 text-white" />
+                      </div>
+                      Shipment Information
+                    </h3>
+                    <p className="text-sm text-slate-600 ml-10">Select the shipment for this batch</p>
+                  </div>
+
+                  <div className="bg-gradient-to-br from-slate-50 to-blue-50/30 rounded-2xl p-6 border-2 border-slate-200">
+                    <label className="block text-sm font-bold text-slate-700 mb-3">
+                      <Ship className="w-4 h-4 inline mr-1.5" />
                       Shipment *
                     </label>
                     <select
                       value={formData.shipment_id}
-                      onChange={(e) => setFormData({ ...formData, shipment_id: e.target.value })}
+                      onChange={(e) => handleShipmentChange(e.target.value)}
                       required
                       disabled={editingBatch}
-                      className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-100 transition-all"
+                      className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 disabled:bg-slate-100 disabled:text-slate-500 transition-all text-base font-medium bg-white shadow-sm hover:border-blue-400"
                     >
                       <option value="">Select Shipment</option>
                       {shipments.map(shipment => (
@@ -410,144 +475,253 @@ export default function BatchManagement() {
                       ))}
                     </select>
                     {shipments.length === 0 && (
-                      <p className="mt-2 text-xs text-amber-600 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" />
-                        No received shipments available
-                      </p>
+                      <div className="mt-4 p-4 rounded-xl bg-amber-50 border-2 border-amber-200">
+                        <p className="text-sm text-amber-800 font-medium flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4" />
+                          No shipments available. Create a shipment first.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Auto-filled Shipment Details */}
+                    {(formData.container_number || formData.bl_number) && (
+                      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {formData.container_number && (
+                          <div className="bg-white rounded-xl p-5 border-2 border-blue-200 shadow-sm">
+                            <p className="text-xs font-bold text-blue-600 uppercase mb-2 flex items-center gap-1.5">
+                              <Box className="w-3.5 h-3.5" />
+                              Container Number
+                            </p>
+                            <p className="text-xl font-bold text-blue-900">{formData.container_number}</p>
+                          </div>
+                        )}
+                        {formData.bl_number && (
+                          <div className="bg-white rounded-xl p-5 border-2 border-blue-200 shadow-sm">
+                            <p className="text-xs font-bold text-blue-600 uppercase mb-2 flex items-center gap-1.5">
+                              <Ship className="w-3.5 h-3.5" />
+                              BL Number
+                            </p>
+                            <p className="text-xl font-bold text-blue-900">{formData.bl_number}</p>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
-
-                  {/* Product */}
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      <Box className="w-4 h-4 inline mr-1" />
-                      Product *
-                    </label>
-                    <select
-                      value={formData.product_id}
-                      onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
-                      required
-                      disabled={editingBatch}
-                      className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-100 transition-all"
-                    >
-                      <option value="">Select Product</option>
-                      {products.map(product => (
-                        <option key={product.id} value={product.id}>
-                          {product.sku} - {product.brand} {product.model}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Batch Number */}
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      Batch Number
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.batch_number}
-                      onChange={(e) => setFormData({ ...formData, batch_number: e.target.value })}
-                      placeholder="Leave blank to auto-generate"
-                      className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    />
-                    <p className="mt-1 text-xs text-slate-500">Format: BATCH-YYMM-XXX</p>
-                  </div>
-
-                  {/* Batch Month */}
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      <Calendar className="w-4 h-4 inline mr-1" />
-                      Batch Month *
-                    </label>
-                    <select
-                      value={formData.batch_month}
-                      onChange={(e) => setFormData({ ...formData, batch_month: parseInt(e.target.value) })}
-                      required
-                      className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    >
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
-                        <option key={month} value={month}>
-                          {new Date(2000, month - 1).toLocaleString('default', { month: 'long' })} ({month})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Batch Year */}
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      Batch Year *
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.batch_year}
-                      onChange={(e) => setFormData({ ...formData, batch_year: parseInt(e.target.value) })}
-                      required
-                      min="2000"
-                      max="2100"
-                      className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    />
-                  </div>
-
-                  {/* Manufactured Date */}
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      <Clock className="w-4 h-4 inline mr-1" />
-                      Manufactured Date
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.manufactured_date}
-                      onChange={(e) => setFormData({ ...formData, manufactured_date: e.target.value })}
-                      className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    />
-                  </div>
-
-                  {/* Expiry Date */}
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2">
-                      Expiry Date
-                    </label>
-                    <input
-                      type="date"
-                      value={formData.expiry_date}
-                      onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-                      className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    />
-                  </div>
                 </div>
 
-                {/* Notes */}
+                {/* Section 2: Product Breakdown */}
+                {formData.product_breakdown && formData.product_breakdown.length > 0 && (
+                  <div>
+                    <div className="mb-6">
+                      <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-1">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center">
+                          <Package className="w-4 h-4 text-white" />
+                        </div>
+                        Product Breakdown
+                      </h3>
+                      <p className="text-sm text-slate-600 ml-10">Products included in the selected shipment</p>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-orange-50 to-red-50/30 rounded-2xl p-6 border-2 border-orange-200">
+                      <div className="flex items-center justify-between mb-5">
+                        <div className="text-sm font-bold text-orange-900 flex items-center gap-2">
+                          <Box className="w-4 h-4" />
+                          {formData.product_breakdown.length} Product Type{formData.product_breakdown.length !== 1 ? 's' : ''}
+                        </div>
+                        <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg">
+                          <p className="text-xs font-bold uppercase tracking-wide">Total Quantity</p>
+                          <p className="text-2xl font-bold">
+                            {formData.product_breakdown.reduce((sum, p) => sum + (parseInt(p.quantity) || 0), 0)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+                        {formData.product_breakdown.map((product, idx) => (
+                          <div 
+                            key={idx} 
+                            className="bg-white rounded-xl p-5 border-2 border-orange-200 hover:border-orange-400 hover:shadow-lg transition-all group"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-lg font-bold shadow-lg group-hover:scale-110 transition-transform">
+                                  {idx + 1}
+                                </div>
+                                <div>
+                                  <p className="text-base font-bold text-slate-900 mb-1">{product.category}</p>
+                                  <span className="text-sm text-slate-600 font-medium flex items-center gap-1.5">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                                    {product.size}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs font-bold text-orange-600 uppercase mb-1">Quantity</p>
+                                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-orange-100 to-red-100 border-2 border-orange-300 text-lg font-bold text-orange-700">
+                                  {product.quantity}
+                                  <span className="text-xs">pcs</span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section 3: Batch Details */}
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2">
-                    Notes
-                  </label>
-                  <textarea
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    rows="4"
-                    placeholder="Additional notes about this batch..."
-                    className="w-full px-4 py-3 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
-                  />
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
+                        <Layers className="w-4 h-4 text-white" />
+                      </div>
+                      Batch Details
+                    </h3>
+                    <p className="text-sm text-slate-600 ml-10">Configure batch identification and dates</p>
+                  </div>
+
+                  <div className="bg-gradient-to-br from-slate-50 to-purple-50/30 rounded-2xl p-6 border-2 border-slate-200 space-y-6">
+                    {/* Batch Number */}
+                    <div>
+                      <label className="block text-sm font-bold text-slate-700 mb-3">
+                        <Barcode className="w-4 h-4 inline mr-1.5" />
+                        Batch Number
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.batch_number}
+                        onChange={(e) => setFormData({ ...formData, batch_number: e.target.value })}
+                        placeholder="Leave blank to auto-generate"
+                        className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-base font-medium bg-white shadow-sm hover:border-purple-400"
+                      />
+                      <span className="mt-2 text-xs text-slate-500 font-medium flex items-center gap-1.5 block">
+                        <span className="w-1 h-1 rounded-full bg-purple-500"></span>
+                        Format: BATCH-YYMM-XXX
+                      </span>
+                    </div>
+
+                    {/* Batch Month & Year */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-3">
+                          <Calendar className="w-4 h-4 inline mr-1.5" />
+                          Batch Month *
+                        </label>
+                        <select
+                          value={formData.batch_month}
+                          onChange={(e) => setFormData({ ...formData, batch_month: parseInt(e.target.value) })}
+                          required
+                          className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-base font-medium bg-white shadow-sm hover:border-purple-400"
+                        >
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
+                            <option key={month} value={month}>
+                              {new Date(2000, month - 1).toLocaleString('default', { month: 'long' })} ({month})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-3">
+                          <Calendar className="w-4 h-4 inline mr-1.5" />
+                          Batch Year *
+                        </label>
+                        <input
+                          type="number"
+                          value={formData.batch_year}
+                          onChange={(e) => setFormData({ ...formData, batch_year: parseInt(e.target.value) })}
+                          required
+                          min="2000"
+                          max="2100"
+                          className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-base font-medium bg-white shadow-sm hover:border-purple-400"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Manufactured & Expiry Dates */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-3">
+                          <Clock className="w-4 h-4 inline mr-1.5" />
+                          Manufactured Date
+                        </label>
+                        <input
+                          type="date"
+                          value={formData.manufactured_date}
+                          onChange={(e) => setFormData({ ...formData, manufactured_date: e.target.value })}
+                          className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-base font-medium bg-white shadow-sm hover:border-purple-400"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-3">
+                          <AlertTriangle className="w-4 h-4 inline mr-1.5" />
+                          Expiry Date
+                        </label>
+                        <input
+                          type="date"
+                          value={formData.expiry_date}
+                          onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
+                          className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-base font-medium bg-white shadow-sm hover:border-purple-400"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Form Actions */}
-                <div className="flex justify-end gap-3 pt-4 border-t">
-                  <button
-                    type="button"
-                    onClick={resetForm}
-                    className="px-6 py-3 border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 transition-all"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="px-6 py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  >
-                    {loading ? 'Saving...' : editingBatch ? 'Update Batch' : 'Create Batch'}
-                  </button>
+                {/* Section 4: Additional Notes */}
+                <div>
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center">
+                        <Edit2 className="w-4 h-4 text-white" />
+                      </div>
+                      Additional Notes
+                    </h3>
+                    <p className="text-sm text-slate-600 ml-10">Optional notes or remarks for this batch</p>
+                  </div>
+
+                  <div className="bg-gradient-to-br from-slate-50 to-slate-100/50 rounded-2xl p-6 border-2 border-slate-200">
+                    <textarea
+                      value={formData.notes}
+                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                      rows="5"
+                      placeholder="Enter any additional information, special handling instructions, or remarks..."
+                      className="w-full px-5 py-4 border-2 border-slate-300 rounded-xl focus:outline-none focus:ring-4 focus:ring-slate-500/20 focus:border-slate-500 transition-all text-base resize-none bg-white shadow-sm hover:border-slate-400"
+                    />
+                  </div>
+                </div>
+
+                {/* Form Actions - Sticky Footer */}
+                <div className="sticky bottom-0 bg-white border-t-2 border-slate-200 -mx-8 -mb-8 px-8 py-6 rounded-b-2xl shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+                  <div className="flex justify-end gap-4">
+                    <button
+                      type="button"
+                      onClick={resetForm}
+                      className="px-8 py-4 border-2 border-slate-300 rounded-xl text-base font-bold text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all shadow-sm hover:shadow-md"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-8 py-4 rounded-xl text-base font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-xl hover:shadow-blue-500/50 hover:scale-[1.02]"
+                    >
+                      {loading ? (
+                        <span className="flex items-center gap-2">
+                          <RefreshCw className="w-5 h-5 animate-spin" />
+                          Saving...
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <Check className="w-5 h-5" />
+                          {editingBatch ? 'Update Batch' : 'Create Batch'}
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </form>
             </motion.div>
@@ -676,10 +850,24 @@ export default function BatchManagement() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
                     {/* Product Info */}
                     <div className="space-y-1">
-                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Product</div>
-                      <div className="text-sm font-semibold text-slate-900">{batch.products?.sku || 'N/A'}</div>
-                      <div className="text-xs text-slate-600">{batch.products?.brand} {batch.products?.model}</div>
-                      <div className="text-xs text-slate-500">{batch.products?.dimensions}</div>
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Products</div>
+                      {batch.shipments?.product_breakdown && batch.shipments.product_breakdown.length > 0 ? (
+                        <div className="space-y-1">
+                          {batch.shipments.product_breakdown.slice(0, 2).map((product, idx) => (
+                            <div key={idx} className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                              {product.category} - {product.size} ({product.quantity} pcs)
+                            </div>
+                          ))}
+                          {batch.shipments.product_breakdown.length > 2 && (
+                            <div className="text-xs text-slate-500 italic">
+                              +{batch.shipments.product_breakdown.length - 2} more
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-sm font-semibold text-slate-900">{batch.products?.sku || 'N/A'}</div>
+                      )}
                     </div>
 
                     {/* Shipment Info */}

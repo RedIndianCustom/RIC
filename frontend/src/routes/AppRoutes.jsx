@@ -90,6 +90,7 @@ import Discrepancies       from '../pages/dashboard/shared/Discrepancies.jsx';
 import Orders              from '../pages/dashboard/shared/Orders.jsx';
 import Returns             from '../pages/dashboard/shared/Returns.jsx';
 import Suppliers           from '../pages/dashboard/shared/Suppliers.jsx';
+import PurchaseOrders      from '../pages/dashboard/shared/PurchaseOrders.jsx';
 import Inventory           from '../pages/dashboard/admin/Inventory.jsx';
 
 // ── Shorthand role constants ──────────────────────────────────
@@ -281,6 +282,11 @@ export default function AppRoutes() {
           {/* Suppliers: Admin(full) | Manager(full) | Operational(full) | Sales/Warehouse(view) */}
           <Route element={<RoleRoute allowed={[A, M, OP, WH, SA]} />}>
             <Route path="/suppliers" element={<Suppliers />} />
+          </Route>
+
+          {/* Purchase Orders: Admin | Manager | Operational Staff */}
+          <Route element={<RoleRoute allowed={[A, M, OP]} />}>
+            <Route path="/purchase-orders" element={<PurchaseOrders />} />
           </Route>
 
         </Route>

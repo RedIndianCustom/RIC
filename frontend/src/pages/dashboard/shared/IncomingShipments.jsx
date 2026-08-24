@@ -409,6 +409,29 @@ export default function IncomingShipments() {
                         </div>
                       </div>
 
+                      {/* Product Breakdown Preview */}
+                      {shipment.product_breakdown && shipment.product_breakdown.length > 0 && (
+                        <div className="bg-gradient-to-r from-orange-50 to-red-50 rounded-xl p-4 border border-orange-200">
+                          <div className="flex items-center space-x-2 mb-3">
+                            <Package className="h-4 w-4 text-orange-600" />
+                            <span className="text-xs font-semibold text-orange-800">Products ({shipment.product_breakdown.length} types)</span>
+                          </div>
+                          <div className="space-y-2 max-h-32 overflow-y-auto">
+                            {shipment.product_breakdown.slice(0, 3).map((product, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-xs bg-white/60 rounded-lg px-3 py-2">
+                                <span className="font-medium text-slate-700">{product.category} {product.size}</span>
+                                <span className="font-bold text-orange-700">{product.quantity} pcs</span>
+                              </div>
+                            ))}
+                            {shipment.product_breakdown.length > 3 && (
+                              <p className="text-xs text-center text-orange-600 font-medium pt-1">
+                                +{shipment.product_breakdown.length - 3} more products
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {/* Expected Arrival */}
                       {shipment.expected_arrival_date && (
                         <div className="flex items-center space-x-2 p-3 bg-slate-50 rounded-lg">
@@ -602,6 +625,39 @@ export default function IncomingShipments() {
                       <p className="text-sm text-slate-500 mb-2">Notes</p>
                       <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm text-slate-700">
                         {selectedShipment.notes}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Product Breakdown - Full List */}
+                  {selectedShipment.product_breakdown && selectedShipment.product_breakdown.length > 0 && (
+                    <div>
+                      <p className="text-sm text-slate-500 mb-3">Product Breakdown</p>
+                      <div className="bg-gradient-to-r from-orange-50 to-red-50 rounded-xl border-2 border-orange-200 overflow-hidden">
+                        <div className="bg-gradient-to-r from-orange-500 to-red-600 px-4 py-2">
+                          <div className="grid grid-cols-3 gap-4">
+                            <span className="text-xs font-bold text-white">Category</span>
+                            <span className="text-xs font-bold text-white">Size</span>
+                            <span className="text-xs font-bold text-white text-right">Quantity</span>
+                          </div>
+                        </div>
+                        <div className="divide-y divide-orange-200">
+                          {selectedShipment.product_breakdown.map((product, idx) => (
+                            <div key={idx} className="grid grid-cols-3 gap-4 px-4 py-3 bg-white/60 hover:bg-white transition-colors">
+                              <span className="text-sm font-semibold text-slate-800">{product.category}</span>
+                              <span className="text-sm font-medium text-slate-600">{product.size}</span>
+                              <span className="text-sm font-bold text-orange-700 text-right">{product.quantity} pcs</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="bg-gradient-to-r from-orange-100 to-red-100 px-4 py-3 border-t-2 border-orange-300">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-bold text-orange-900">Total</span>
+                            <span className="text-lg font-bold text-orange-700">
+                              {selectedShipment.product_breakdown.reduce((sum, p) => sum + (parseInt(p.quantity) || 0), 0)} tires
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}

@@ -10,29 +10,27 @@ import { supabaseAdmin } from '../config/supabase.js';
 
 /**
  * GET /api/warehouses
- * Get all warehouse locations
+ * Get all warehouses from the warehouses table
  */
 export async function getWarehouses(req, res) {
   try {
     console.log('🏭 GET /api/warehouses - Fetching warehouses...');
     
-    // Only get distinct warehouse codes (not individual positions)
+    // Get all warehouses from the WAREHOUSES table (not warehouse_locations!)
     const { data, error } = await supabaseAdmin
-      .from('warehouse_locations')
-      .select('*')
+      .from('warehouses')
+      .select('id, code, name, location, total_slots, occupied_slots, status, created_at')
       .eq('status', 'active')
-      .eq('name', 'Main Warehouse')  // Only get "Main Warehouse" records
-      .order('name')
-      .limit(1);  // Just get the first one
+      .order('code');
 
     if (error) {
       console.error('❌ Warehouse query error:', error);
       throw error;
     }
 
-    console.log(`✅ Found ${data?.length || 0} warehouse locations`);
+    console.log(`✅ Found ${(data || []).length} warehouses`);
     if (data && data.length > 0) {
-      console.log('📦 Main warehouse:', { id: data[0].id, name: data[0].name, code: data[0].code });
+      console.log('📦 Warehouses:', data.map(w => ({ id: w.id, name: w.name, code: w.code })));
     }
 
     return res.json({

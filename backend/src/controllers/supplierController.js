@@ -43,6 +43,8 @@ const toDb = (d) => ({
   tax_id:         d.taxId ?? d.tax_id,
   status:         d.status ?? 'active',
   notes:          d.notes,
+  total_orders:   d.totalOrders ?? d.total_orders ?? 0,
+  total_value:    d.totalValue ?? d.total_value ?? 0,
 });
 
 const toClient = (row) => ({

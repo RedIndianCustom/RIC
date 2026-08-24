@@ -10,16 +10,35 @@ const TOAST_EVENT = 'show-toast';
 
 /**
  * Display a toast notification
- * @param {Object} options - Toast options
- * @param {string} options.type - Toast type: 'success' | 'error' | 'warning' | 'info'
- * @param {string} options.message - Toast message
- * @param {string} options.title - Toast title (optional)
- * @param {number} options.duration - Auto-dismiss duration in ms (default: 5000)
- * @param {string} options.position - Toast position (default: 'top-right')
+ * @param {string|Object} messageOrOptions - Toast message or options object
+ * @param {string} type - Toast type: 'success' | 'error' | 'warning' | 'info' (if first param is string)
+ * @param {number} duration - Auto-dismiss duration in ms (default: 5000)
  */
-export function showToast({ type = 'info', message, title, duration = 5000, position = 'top-right' }) {
+export function showToast(messageOrOptions, type = 'info', duration = 5000) {
+  let options;
+  
+  // Support both calling patterns:
+  // 1. showToast('Message', 'success')
+  // 2. showToast({ message: 'Message', type: 'success' })
+  if (typeof messageOrOptions === 'string') {
+    options = {
+      message: messageOrOptions,
+      type: type,
+      duration: duration,
+      position: 'top-right'
+    };
+  } else {
+    options = {
+      type: messageOrOptions.type || 'info',
+      message: messageOrOptions.message,
+      title: messageOrOptions.title,
+      duration: messageOrOptions.duration || 5000,
+      position: messageOrOptions.position || 'top-right'
+    };
+  }
+  
   const event = new CustomEvent(TOAST_EVENT, {
-    detail: { type, message, title, duration, position }
+    detail: options
   });
   window.dispatchEvent(event);
 }
