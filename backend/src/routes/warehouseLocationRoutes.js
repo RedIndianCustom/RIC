@@ -34,4 +34,12 @@ router.delete('/:id',   authorize('admin', 'manager'),
 router.post('/assign-batch', authorize('admin', 'manager', 'operational_staff'),
   warehouseLocationController.assignBatchToLocation);
 
+// Get storage positions for a rack - All roles can view
+router.get('/:id/positions', authorize('admin', 'manager', 'operational_staff', 'warehouse_staff', 'sales_staff'),
+  warehouseLocationController.getStoragePositions);
+
+// Update storage position (assign/update tire) - Admin, Manager, Operational Staff
+router.put('/:id/positions/:positionId', authorize('admin', 'manager', 'operational_staff'),
+  warehouseLocationController.updateStoragePosition);
+
 export default router;

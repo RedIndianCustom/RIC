@@ -226,3 +226,224 @@ export async function assignBatchToLocation(req, res) {
   }
 }
 
+/**
+ * Get storage positions for a warehouse location (rack)
+ * @route GET /api/warehouse-locations/:id/positions
+ */
+export async function getStoragePositions(req, res) {
+  try {
+    const { id } = req.params;
+
+    // First, verify the warehouse location exists
+    const { data: location, error: locationError } = await supabaseAdmin
+      .from('warehouse_locations')
+      .select('id, code, metadata')
+      .eq('id', id)
+      .single();
+
+    if (locationError || !location) {
+      return res.status(404).json({ error: 'Warehouse location not found' });
+    }
+
+    // Get existing positions from database
+    const { data: positions, error: positionsError } = await supabaseAdmin
+      .from('warehouse_storage_positions')
+      .select('*')
+      .eq('warehouse_location_id', id)
+      .order('section_number')
+      .order('shelf_number')
+      .order('subsection_number');
+
+    if (positionsError) {
+      console.error('Error fetching positions:', positionsError);
+      throw positionsError;
+    }
+
+    // If no positions exist, generate them from metadata
+    if (!positions || positions.length === 0) {
+      const metadata = location.metadata || {};
+      
+      if (metadata.sectionsPerRack && metadata.shelvesPerSection && 
+          metadata.subsectionsPerSection && metadata.tiresPerSubsection) {
+        
+        console.log(`📦 Generating positions for rack ${location.code}...`);
+        
+        // Call the generate function
+        const { data: generateResult, error: generateError } = await supabaseAdmin
+          .rpc('generate_storage_positions_for_rack', {
+            p_warehouse_location_id: id,
+            p_sections: metadata.sectionsPerRack,
+            p_shelves: metadata.shelvesPerSection,
+            p_subsections: metadata.subsectionsPerSection,
+            p_capacity_per_subsection: metadata.tiresPerSubsection
+          });
+
+        if (generateError) {
+          console.error('Error generating positions:', generateError);
+          throw generateError;
+        }
+
+        console.log(`✅ Generated ${generateResult} positions`);
+
+        // Fetch the newly created positions
+        const { data: newPositions, error: newError } = await supabaseAdmin
+          .from('warehouse_storage_positions')
+          .select('*')
+          .eq('warehouse_location_id', id)
+          .order('section_number')
+          .order('shelf_number')
+          .order('subsection_number');
+
+        if (newError) throw newError;
+
+        return res.json({ positions: newPositions || [] });
+      }
+      
+      // No metadata to generate from, return empty
+      return res.json({ positions: [] });
+    }
+
+    return res.json({ positions: positions || [] });
+  } catch (err) {
+    console.error('Error fetching storage positions:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * Update a specific storage position (assign/update tires)
+ * @route PUT /api/warehouse-locations/:id/positions/:positionId
+ * 
+ * Supports both single and multiple products per position:
+ * 
+ * Single product (legacy):
+ * { tire_size: "90/90-17", quantity: 8 }
+ * 
+ * Multiple products (enhanced):
+ * { 
+ *   products: [
+ *     { product_id: "uuid", tire_size: "90/90-17", quantity: 5 },
+ *     { product_id: "uuid", tire_size: "100/90-19", quantity: 3 }
+ *   ],
+ *   total_quantity: 8
+ * }
+ */
+export async function updateStoragePosition(req, res) {
+  try {
+    const { id, positionId } = req.params;
+    const { tire_size, quantity, products, total_quantity } = req.body;
+
+    // Get the position
+    const { data: position, error: positionError } = await supabaseAdmin
+      .from('warehouse_storage_positions')
+      .select('*')
+      .eq('id', positionId)
+      .eq('warehouse_location_id', id)
+      .single();
+
+    if (positionError || !position) {
+      return res.status(404).json({ error: 'Storage position not found' });
+    }
+
+    let updateData;
+    let finalQuantity;
+    let tireSizeDisplay;
+
+    // Handle multiple products (enhanced format)
+    if (products && Array.isArray(products)) {
+      // Validate products array
+      if (products.length === 0) {
+        return res.status(400).json({ error: 'products array cannot be empty' });
+      }
+
+      // Calculate total quantity from products
+      finalQuantity = products.reduce((sum, p) => sum + (parseInt(p.quantity) || 0), 0);
+
+      // Validate total doesn't exceed capacity
+      if (finalQuantity > position.capacity) {
+        return res.status(400).json({ 
+          error: `Total quantity (${finalQuantity}) exceeds position capacity (${position.capacity})` 
+        });
+      }
+
+      // Validate each product has required fields
+      for (const product of products) {
+        if (!product.tire_size && finalQuantity > 0) {
+          return res.status(400).json({ 
+            error: 'All products must have tire_size when quantity > 0' 
+          });
+        }
+      }
+
+      // Create display string (first tire size + count if multiple)
+      tireSizeDisplay = products.length === 1 
+        ? products[0].tire_size 
+        : `${products[0].tire_size} +${products.length - 1} more`;
+
+      updateData = {
+        current_stock: finalQuantity,
+        tire_size: tireSizeDisplay,
+        metadata: { products }, // Store full product breakdown in metadata
+        status: finalQuantity === 0 ? 'empty' : 
+                finalQuantity >= position.capacity ? 'full' : 'available'
+      };
+
+    } else {
+      // Handle single product (legacy format)
+      if (quantity === undefined || quantity === null) {
+        return res.status(400).json({ error: 'quantity is required' });
+      }
+
+      finalQuantity = parseInt(quantity);
+      if (isNaN(finalQuantity) || finalQuantity < 0) {
+        return res.status(400).json({ error: 'quantity must be a non-negative number' });
+      }
+
+      // Validate capacity
+      if (finalQuantity > position.capacity) {
+        return res.status(400).json({ 
+          error: `Quantity (${finalQuantity}) exceeds position capacity (${position.capacity})` 
+        });
+      }
+
+      // Validate tire_size is provided if quantity > 0
+      if (finalQuantity > 0 && (!tire_size || tire_size.trim() === '')) {
+        return res.status(400).json({ 
+          error: 'tire_size is required when quantity is greater than zero' 
+        });
+      }
+
+      updateData = {
+        current_stock: finalQuantity,
+        tire_size: finalQuantity > 0 ? tire_size.trim() : null,
+        status: finalQuantity === 0 ? 'empty' : 
+                finalQuantity >= position.capacity ? 'full' : 'available'
+      };
+    }
+
+    // Update the position
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('warehouse_storage_positions')
+      .update(updateData)
+      .eq('id', positionId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating position:', updateError);
+      throw updateError;
+    }
+
+    console.log(`✅ Updated position ${position.position_code}: ${updateData.tire_size || 'empty'} × ${finalQuantity}`);
+
+    return res.json({ 
+      success: true,
+      position: updated,
+      message: 'Storage position updated successfully'
+    });
+  } catch (err) {
+    console.error('Error updating storage position:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
