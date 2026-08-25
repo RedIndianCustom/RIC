@@ -6,7 +6,7 @@
  * ============================================================================
  */
 
-import supabaseAdmin from '../config/supabaseAdmin.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 /**
  * PATCH /api/inventory-units/:id/status
@@ -101,20 +101,19 @@ export async function updateInventoryUnitStatus(req, res) {
 
     console.log(`✅ Inventory unit status updated: ${currentUnit.status} → ${status}`);
 
-    // Log the status change to audit log (if audit table exists)
+    // Log the status change to activity_log
     try {
-      await supabaseAdmin.from('audit_logs').insert({
-        action: 'UPDATE_INVENTORY_STATUS',
-        table_name: 'inventory_units',
-        record_id: id,
-        old_value: { status: currentUnit.status },
-        new_value: { status, reason, notes },
+      await supabaseAdmin.from('activity_log').insert({
         user_id: req.user?.id || null,
-        created_at: new Date().toISOString()
+        action: 'inventory.status_updated',
+        category: 'Inventory',
+        severity: 'info',
+        details: `Inventory unit ${id} status changed from ${currentUnit.status} to ${status}`,
+        metadata: { inventoryUnitId: id, from: currentUnit.status, to: status, reason, notes },
       });
     } catch (auditError) {
-      // Audit logging is non-critical, just log the error
-      console.warn('Failed to create audit log:', auditError.message);
+      // Audit logging is non-critical
+      console.warn('Failed to create activity log:', auditError.message);
     }
 
     return res.json({

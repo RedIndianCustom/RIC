@@ -61,7 +61,7 @@ export async function createEmployee(req, res, next) {
 
     if (error) throw error;
 
-    await supabaseAdmin.from('audit_log').insert({
+    await supabaseAdmin.from('activity_log').insert({
       user_id: req.user?.id || null,
       action: 'employee.registered',
       category: 'Security',
@@ -107,7 +107,7 @@ export async function updateEmployee(req, res, next) {
 
     if (error) throw error;
 
-    await supabaseAdmin.from('audit_log').insert({
+    await supabaseAdmin.from('activity_log').insert({
       user_id: req.user?.id || null,
       action: 'employee.updated',
       category: 'Security',
@@ -129,7 +129,7 @@ export async function deleteEmployee(req, res, next) {
     const { error } = await supabaseAdmin.from('employees').delete().eq('id', id);
     if (error) throw error;
 
-    await supabaseAdmin.from('audit_log').insert({
+    await supabaseAdmin.from('activity_log').insert({
       user_id: req.user?.id || null,
       action: 'employee.deleted',
       category: 'Security',
@@ -176,7 +176,7 @@ export async function bulkImportEmployees(req, res, next) {
 
     if (error) throw error;
 
-    await supabaseAdmin.from('audit_log').insert({
+    await supabaseAdmin.from('activity_log').insert({
       user_id: req.user?.id || null,
       action: 'employee.bulk_import',
       category: 'Security',

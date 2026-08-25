@@ -28,12 +28,9 @@ export default function AuditLogs() {
       const { data } = await api.get('/audit-logs');
       if (data?.logs && data.logs.length > 0) {
         setLogs(data.logs);
-      } else {
-        setLogs(INITIAL_LOGS);
       }
     } catch (err) {
       console.warn('Audit logs API notice:', err);
-      setLogs(INITIAL_LOGS);
     } finally {
       setLoading(false);
     }
@@ -154,6 +151,17 @@ export default function AuditLogs() {
       </div>
 
       {/* ── Audit Logs Table ──────────────────────────────────────── */}
+      {filteredLogs.length === 0 ? (
+        <EmptyState
+          icon={ScrollText}
+          title={logs.length === 0 ? 'No Audit Logs Yet' : 'No Logs Match Filters'}
+          description={
+            logs.length === 0
+              ? 'System activity will be recorded here once events occur.'
+              : 'Try adjusting your search or filter criteria.'
+          }
+        />
+      ) : (
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -223,6 +231,7 @@ export default function AuditLogs() {
           </table>
         </div>
       </div>
+      )}
 
       {/* ── Payload Inspector Modal ───────────────────────────────── */}
       <AnimatePresence>

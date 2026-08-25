@@ -15,7 +15,7 @@
 
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import supabaseAdmin from '../config/supabaseAdmin.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 const TRACE_BASE_URL = process.env.TRACE_BASE_URL || 'http://localhost:5173/trace';
 const BARCODE_PREFIX = 'RIC';

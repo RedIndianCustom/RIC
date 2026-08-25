@@ -60,8 +60,8 @@ app.use('/api/traceability', traceabilityRoutes);
 app.use('/api/inventory-units', inventoryRoutes);
 
 // Orders & Returns
+// Returns are sub-paths of orders: GET /api/orders/returns, POST /api/orders/returns
 app.use('/api/orders', orderRoutes);
-app.use('/api/returns', orderRoutes);
 
 // Suppliers & Purchase Orders
 app.use('/api/suppliers', supplierRoutes);

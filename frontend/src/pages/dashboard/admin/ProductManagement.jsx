@@ -6,95 +6,14 @@ import {
   Tag, ArrowUpDown, ChevronRight, Edit3, Trash2
 } from 'lucide-react';
 import Loading from '../../../components/common/Loading.jsx';
-
-const INITIAL_PRODUCTS = [
-  {
-    id: 'prod-01',
-    sku: 'MICH-PS4S-2454519',
-    brand: 'Michelin',
-    model: 'Pilot Sport 4S',
-    dimensions: '245/45 R19 98Y',
-    category: 'Ultra High Performance',
-    unitCost: 185.00,
-    retailPrice: 289.00,
-    currentStock: 64,
-    reorderLevel: 20,
-    status: 'In Stock'
-  },
-  {
-    id: 'prod-02',
-    sku: 'PIR-PZERO-2754020',
-    brand: 'Pirelli',
-    model: 'P Zero PZ4',
-    dimensions: '275/40 R20 106Y',
-    category: 'Ultra High Performance',
-    unitCost: 210.00,
-    retailPrice: 325.00,
-    currentStock: 14,
-    reorderLevel: 25,
-    status: 'Low Stock'
-  },
-  {
-    id: 'prod-03',
-    sku: 'BRDG-DUEL-2657017',
-    brand: 'Bridgestone',
-    model: 'Dueler A/T Revo 3',
-    dimensions: '265/70 R17 115T',
-    category: 'All-Terrain / SUV',
-    unitCost: 145.00,
-    retailPrice: 220.00,
-    currentStock: 92,
-    reorderLevel: 30,
-    status: 'In Stock'
-  },
-  {
-    id: 'prod-04',
-    sku: 'CONT-EXTR-2254518',
-    brand: 'Continental',
-    model: 'ExtremeContact DWS06 Plus',
-    dimensions: '225/45 R18 95Y',
-    category: 'All-Season Performance',
-    unitCost: 130.00,
-    retailPrice: 198.00,
-    currentStock: 8,
-    reorderLevel: 20,
-    status: 'Low Stock'
-  },
-  {
-    id: 'prod-05',
-    sku: 'GDYR-WRAN-2856518',
-    brand: 'Goodyear',
-    model: 'Wrangler Duratrac',
-    dimensions: '285/65 R18 125Q',
-    category: 'Rugged Off-Road',
-    unitCost: 195.00,
-    retailPrice: 295.00,
-    currentStock: 48,
-    reorderLevel: 15,
-    status: 'In Stock'
-  },
-  {
-    id: 'prod-06',
-    sku: 'DNL-SPRT-2354019',
-    brand: 'Dunlop',
-    model: 'Sport Maxx RT2',
-    dimensions: '235/40 R19 96Y',
-    category: 'Ultra High Performance',
-    unitCost: 140.00,
-    retailPrice: 215.00,
-    currentStock: 5,
-    reorderLevel: 15,
-    status: 'Critical Low'
-  },
-];
+import EmptyState from '../../../components/common/EmptyState.jsx';
+import api from '../../../services/api.js';
 
 const BRANDS = ['All Brands', 'Michelin', 'Pirelli', 'Bridgestone', 'Continental', 'Goodyear', 'Dunlop'];
 const CATEGORIES = ['All Categories', 'Ultra High Performance', 'All-Terrain / SUV', 'All-Season Performance', 'Rugged Off-Road'];
 
-import api from '../../../services/api.js';
-
 export default function ProductManagement() {
-  const [products, setProducts] = useState(INITIAL_PRODUCTS);
+  const [products, setProducts] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBrand, setSelectedBrand] = useState('All Brands');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
@@ -174,21 +93,10 @@ export default function ProductManagement() {
       await loadData();
       setTimeout(() => setSuccess(''), 3500);
     } catch (err) {
-      // Local optimistic add
-      const newProd = {
-        id: `prod-${Date.now().toString().slice(-4)}`,
-        sku,
-        ...formData,
-        unitCost: parseFloat(formData.unitCost),
-        retailPrice: parseFloat(formData.retailPrice),
-        currentStock: parseInt(formData.currentStock, 10),
-        reorderLevel: parseInt(formData.reorderLevel, 10),
-        status: parseInt(formData.currentStock, 10) < parseInt(formData.reorderLevel, 10) ? 'Low Stock' : 'In Stock',
-      };
-      setProducts([newProd, ...products]);
-      setSuccess(`Master SKU ${sku} saved!`);
-      setIsAddModalOpen(false);
-      setTimeout(() => setSuccess(''), 3500);
+      console.error('Failed to add product:', err);
+      setSuccess('');
+      // surface the error to the user without injecting fake data
+      alert(err?.response?.data?.error || 'Failed to save product. Please try again.');
     }
   };
 
@@ -291,6 +199,21 @@ export default function ProductManagement() {
       </div>
 
       {/* ── Products Table ────────────────────────────────────────── */}
+      {loading ? (
+        <Loading />
+      ) : filteredProducts.length === 0 ? (
+        <EmptyState
+          icon={Package}
+          title={products.length === 0 ? 'No Products in Catalog' : 'No Products Match Filters'}
+          description={
+            products.length === 0
+              ? 'Add your first tire SKU to the master catalog to get started.'
+              : 'Try adjusting your search or filter criteria.'
+          }
+          actionLabel={products.length === 0 ? 'Add First SKU' : undefined}
+          onAction={products.length === 0 ? () => setIsAddModalOpen(true) : undefined}
+        />
+      ) : (
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -362,6 +285,7 @@ export default function ProductManagement() {
           </table>
         </div>
       </div>
+      )}
 
       {/* ── Add Product Modal ─────────────────────────────────────── */}
       <AnimatePresence>

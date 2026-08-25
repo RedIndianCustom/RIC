@@ -2,21 +2,22 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Plus, Edit, Trash2, MapPin, Package, Search, Filter,
-  Hash, Tag, Grid2x2, Layers, BookOpen, Box,
+  Hash, Tag, Grid2x2, Layers, Box,
   CheckCircle2, AlertCircle, XCircle, Wrench, X,
+  Warehouse, ChevronDown, ChevronRight,
+  Rows3, LayoutGrid, Archive, Eye, Save, RefreshCw,
 } from 'lucide-react';
-import Button from '../../../components/common/Button';
 import Modal from '../../../components/common/Modal';
-import Table from '../../../components/common/Table';
 import Loading from '../../../components/common/Loading';
-import EmptyState from '../../../components/common/EmptyState';
 import { showToast } from '../../../utils/toast';
 import api from '../../../services/api';
 import { useAuth } from '../../../hooks/useAuth';
 
 const fadeIn = { hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } };
 
-// ── Inline field label wrapper ────────────────────────────────────────────────
+/* ============================================================================
+   FIELD
+============================================================================ */
 function Field({ label, required, hint, children }) {
   return (
     <div className="flex flex-col gap-1">
@@ -30,7 +31,9 @@ function Field({ label, required, hint, children }) {
   );
 }
 
-// ── Styled text input ─────────────────────────────────────────────────────────
+/* ============================================================================
+   TEXT INPUT
+============================================================================ */
 function TextInput({ icon: Icon, className = '', ...props }) {
   return (
     <div className="relative">
@@ -40,22 +43,21 @@ function TextInput({ icon: Icon, className = '', ...props }) {
         </span>
       )}
       <input
-        className={`w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 text-sm text-slate-900 outline-none transition
-          placeholder:text-slate-400
-          focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100
-          ${Icon ? 'pl-9 pr-3' : 'px-3'} ${className}`}
+        className={`w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100 ${Icon ? 'pl-9 pr-3' : 'px-3'} ${className}`}
         {...props}
       />
     </div>
   );
 }
 
-// ── Status picker ─────────────────────────────────────────────────────────────
+/* ============================================================================
+   STATUS OPTIONS
+============================================================================ */
 const STATUS_OPTIONS = [
-  { value: 'active',      label: 'Active',      Icon: CheckCircle2, color: 'text-green-600 bg-green-50  border-green-200' },
-  { value: 'full',        label: 'Full',         Icon: AlertCircle,  color: 'text-amber-600 bg-amber-50  border-amber-200' },
-  { value: 'empty',       label: 'Empty',        Icon: XCircle,      color: 'text-slate-500 bg-slate-50  border-slate-200' },
-  { value: 'maintenance', label: 'Maintenance',  Icon: Wrench,       color: 'text-red-600   bg-red-50    border-red-200'   },
+  { value: 'active',      label: 'Active',      Icon: CheckCircle2, color: 'text-green-600 bg-green-50 border-green-200' },
+  { value: 'full',        label: 'Full',         Icon: AlertCircle,  color: 'text-amber-600 bg-amber-50 border-amber-200' },
+  { value: 'empty',       label: 'Empty',        Icon: XCircle,      color: 'text-slate-500 bg-slate-50 border-slate-200' },
+  { value: 'maintenance', label: 'Maintenance',  Icon: Wrench,       color: 'text-red-600 bg-red-50 border-red-200' },
 ];
 
 function StatusPicker({ value, onChange }) {
@@ -66,11 +68,11 @@ function StatusPicker({ value, onChange }) {
           key={val}
           type="button"
           onClick={() => onChange(val)}
-          className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all
-            ${value === val
+          className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-all ${
+            value === val
               ? `${color} shadow-sm ring-2 ring-current ring-offset-1`
               : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-            }`}
+          }`}
         >
           <Icon size={15} />
           {label}
@@ -80,69 +82,217 @@ function StatusPicker({ value, onChange }) {
   );
 }
 
-// ── Section header ────────────────────────────────────────────────────────────
+/* ============================================================================
+   SECTION HEADER
+============================================================================ */
 function SectionHeader({ icon: Icon, label }) {
   return (
     <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
-      <Icon size={12} /> {label}
+      <Icon size={12} />
+      {label}
     </p>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+/* ============================================================================
+   TIRE SIZE BADGE
+============================================================================ */
+function TireSizeBadge({ tireSize, quantity }) {
+  if (!tireSize) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+        Empty
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+      <Tag size={11} />
+      {tireSize}
+      {quantity !== undefined && <span className="font-bold">× {quantity}</span>}
+    </span>
+  );
+}
+
+/* ============================================================================
+   DEFAULT FORM
+
+   One Warehouse Location = One Physical Rack
+   Example:
+     Warehouse : WH1
+     Row       : 01
+     Rack      : 02
+     Rack Code : WH1-R01-RK02
+============================================================================ */
 const EMPTY_FORM = {
-  code: '',
-  warehouseCode: '',
-  rackDesignation: '',
-  rackSize: '',
-  totalRacks: '1',
-  shelvesPerRack: '4',
-  sectionsPerShelf: '6',
+  code:                  '',
+  warehouseCode:         '',
+  rowNumber:             '1',
+  rackNumber:            '1',
+  rackType:              'Standard Tire Rack',
+  sectionsPerRack:       '6',
+  shelvesPerSection:     '8',
   subsectionsPerSection: '2',
-  capacity: '100',  // Default capacity
-  current_stock: '0',
-  status: 'active',
-  // Ensure all possible fields have defaults
-  name: '',
-  zone: '',
-  aisle: '',
-  rack: '',
-  shelf: '',
+  tiresPerSubsection:    '14',   // maximum physical capacity per subsection
+  capacity:              '',
+  current_stock:         '0',
+  status:                'active',
 };
 
-export default function WarehouseLocations() {
-  const { hasRole } = useAuth();
-  const [locations,       setLocations]       = useState([]);
-  const [loading,         setLoading]         = useState(true);
-  const [showModal,       setShowModal]       = useState(false);
-  const [editingLocation, setEditingLocation] = useState(null);
-  const [searchQuery,     setSearchQuery]     = useState('');
-  const [filterZone,      setFilterZone]      = useState('all');
-  const [submitting,      setSubmitting]      = useState(false);
-  const [formData,        setFormData]        = useState(EMPTY_FORM);
-  const [dbReady,         setDbReady]         = useState(true);   // false = table not set up yet
+/* ============================================================================
+   HELPERS
+============================================================================ */
+function padNumber(value, length = 2) {
+  return String(value || 0).padStart(length, '0');
+}
 
-  // NEW: Warehouse states
-  const [warehouses, setWarehouses] = useState([]);
-  const [products, setProducts] = useState([]);  // NEW: For product categories
+/** WH1 + Row 01 + Rack 02  →  WH1-R01-RK02 */
+function generateRackCode(warehouseCode, rowNumber, rackNumber) {
+  if (!warehouseCode) return '';
+  return `${warehouseCode}-R${padNumber(rowNumber)}-RK${padNumber(rackNumber)}`;
+}
 
-  // Auto-generate location code when warehouse is selected
-  useEffect(() => {
-    if (formData.warehouseCode) {
-      const autoCode = `${formData.warehouseCode}-LOC-${Date.now().toString().slice(-6)}`;
-      if (!editingLocation && !formData.code) {
-        setFormData(prev => ({ ...prev, code: autoCode }));
+/** WH1-R01-RK02 + S01-SH01-SUB01  →  full position code */
+function generatePositionCode(warehouseCode, rowNumber, rackNumber, section, shelf, subsection) {
+  return `${generateRackCode(warehouseCode, rowNumber, rackNumber)}-S${padNumber(section)}-SH${padNumber(shelf)}-SUB${padNumber(subsection)}`;
+}
+
+/** Sections × Shelves × Subsections × Tires  →  max tire capacity */
+function calcRackCapacity(form) {
+  const sections    = parseInt(form.sectionsPerRack       || 0);
+  const shelves     = parseInt(form.shelvesPerSection     || 0);
+  const subsections = parseInt(form.subsectionsPerSection || 0);
+  const tires       = parseInt(form.tiresPerSubsection    || 0);
+  if (!sections || !shelves || !subsections || !tires) return 0;
+  return sections * shelves * subsections * tires;
+}
+
+/** Sections × Shelves × Subsections  →  number of storage slots */
+function calcStoragePositions(form) {
+  const sections    = parseInt(form.sectionsPerRack       || 0);
+  const shelves     = parseInt(form.shelvesPerSection     || 0);
+  const subsections = parseInt(form.subsectionsPerSection || 0);
+  if (!sections || !shelves || !subsections) return 0;
+  return sections * shelves * subsections;
+}
+
+function generateExactLocationExample(warehouseCode, rowNumber, rackNumber) {
+  if (!warehouseCode) return 'Select warehouse first';
+  return generatePositionCode(warehouseCode, rowNumber, rackNumber, 1, 1, 1);
+}
+
+function getPositionUtilization(position) {
+  const capacity = Number(position.capacity || 0);
+  const stock    = Number(position.current_stock || position.quantity || 0);
+  if (!capacity) return 0;
+  return Math.min(100, Math.round((stock / capacity) * 100));
+}
+
+function capacityColor(current, capacity) {
+  if (!capacity) return 'text-slate-500';
+  const pct = (current / capacity) * 100;
+  if (pct >= 90) return 'text-red-600';
+  if (pct >= 70) return 'text-amber-600';
+  return 'text-green-600';
+}
+
+/**
+ * Build an empty positions array from rack metadata.
+ * Used as a local fallback when the backend positions endpoint
+ * is not yet implemented.
+ */
+function buildEmptyPositions(location) {
+  const meta             = location?.metadata || {};
+  const warehouseCode    = meta.warehouseCode   || location.zone  || '';
+  const rowNumber        = Number(meta.rowNumber    ?? parseInt(location.aisle) ?? 1);
+  const rackNumber       = Number(meta.rackNumber   ?? parseInt(location.rack)  ?? 1);
+  const sections         = Number(meta.sectionsPerRack       ?? parseInt(location.shelf) ?? 0);
+  const shelves          = Number(meta.shelvesPerSection     ?? 0);
+  const subsections      = Number(meta.subsectionsPerSection ?? 0);
+  const capacityPerSub   = Number(meta.tiresPerSubsection    ?? 0);
+
+  const positions = [];
+  for (let section = 1; section <= sections; section++) {
+    for (let shelf = 1; shelf <= shelves; shelf++) {
+      for (let sub = 1; sub <= subsections; sub++) {
+        positions.push({
+          id:                  `generated-${section}-${shelf}-${sub}`,
+          warehouse_location_id: location.id,
+          section_number:      section,
+          shelf_number:        shelf,
+          subsection_number:   sub,
+          position_code:       generatePositionCode(warehouseCode, rowNumber, rackNumber, section, shelf, sub),
+          capacity:            capacityPerSub,
+          current_stock:       0,
+          tire_size:           null,
+          status:              'empty',
+        });
       }
     }
-  }, [formData.warehouseCode, editingLocation]);
+  }
+  return positions;
+}
 
-  useEffect(() => { 
+/* ============================================================================
+   MAIN COMPONENT
+============================================================================ */
+export default function WarehouseLocations() {
+  const { hasRole } = useAuth();
+
+  const [locations,        setLocations]        = useState([]);
+  const [loading,          setLoading]          = useState(true);
+  const [showModal,        setShowModal]        = useState(false);
+  const [editingLocation,  setEditingLocation]  = useState(null);
+  const [searchQuery,      setSearchQuery]      = useState('');
+  const [filterZone,       setFilterZone]       = useState('all');
+  const [openFolders,      setOpenFolders]      = useState({});
+  const [submitting,       setSubmitting]       = useState(false);
+  const [formData,         setFormData]         = useState(EMPTY_FORM);
+  const [dbReady,          setDbReady]          = useState(true);
+  const [warehouses,       setWarehouses]       = useState([]);
+
+  // Positions state
+  const [rackPositions,       setRackPositions]       = useState({});
+  const [loadingPositions,    setLoadingPositions]    = useState({});
+  const [selectedRack,        setSelectedRack]        = useState(null);
+  const [showPositionsModal,  setShowPositionsModal]  = useState(false);
+  const [selectedPosition,    setSelectedPosition]    = useState(null);
+  const [positionSaving,      setPositionSaving]      = useState(false);
+  const [tireSizeInput,       setTireSizeInput]       = useState('');
+  const [quantityInput,       setQuantityInput]       = useState('0');
+
+  /* --------------------------------------------------------------------------
+     AUTO-GENERATE PHYSICAL RACK CODE
+  -------------------------------------------------------------------------- */
+  useEffect(() => {
+    if (formData.warehouseCode && formData.rowNumber && formData.rackNumber && !editingLocation) {
+      setFormData(prev => ({
+        ...prev,
+        code: generateRackCode(formData.warehouseCode, formData.rowNumber, formData.rackNumber),
+      }));
+    }
+  }, [formData.warehouseCode, formData.rowNumber, formData.rackNumber, editingLocation]);
+
+  /* --------------------------------------------------------------------------
+     AUTO-CALCULATE CAPACITY
+  -------------------------------------------------------------------------- */
+  useEffect(() => {
+    const total = calcRackCapacity(formData);
+    if (total > 0) setFormData(prev => ({ ...prev, capacity: String(total) }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.sectionsPerRack, formData.shelvesPerSection, formData.subsectionsPerSection, formData.tiresPerSubsection]);
+
+  /* --------------------------------------------------------------------------
+     INITIAL LOAD
+  -------------------------------------------------------------------------- */
+  useEffect(() => {
     loadLocations();
     loadWarehouses();
-    loadProducts();
   }, []);
 
-  // ── Data loading ────────────────────────────────────────────────────────────
+  /* --------------------------------------------------------------------------
+     LOAD LOCATIONS
+  -------------------------------------------------------------------------- */
   const loadLocations = async () => {
     setLoading(true);
     try {
@@ -150,23 +300,25 @@ export default function WarehouseLocations() {
       const fetched  = response.data.locations || [];
       setLocations(fetched);
       setDbReady(true);
+      const allOpen = {};
+      fetched.forEach(loc => { if (loc.zone) allOpen[loc.zone] = true; });
+      setOpenFolders(allOpen);
     } catch (err) {
       setLocations([]);
-      // 503 means the DB table hasn't been created yet
       const is503 =
         err.response?.status === 503 ||
         err.status === 503 ||
         err.message?.toLowerCase().includes('not configured');
-      if (is503) {
-        setDbReady(false);
-      } else {
-        console.warn('Warehouse locations API error:', err.message);
-      }
+      if (is503) setDbReady(false);
+      else console.warn('Warehouse locations API error:', err.message);
     } finally {
       setLoading(false);
     }
   };
 
+  /* --------------------------------------------------------------------------
+     LOAD WAREHOUSES
+  -------------------------------------------------------------------------- */
   const loadWarehouses = async () => {
     try {
       const { data } = await api.get('/warehouses');
@@ -177,381 +329,615 @@ export default function WarehouseLocations() {
     }
   };
 
-  const loadProducts = async () => {
+  /* --------------------------------------------------------------------------
+     LOAD RACK POSITIONS
+     Falls back to locally-generated empty positions when backend
+     GET /warehouse-locations/:id/positions is not yet available.
+  -------------------------------------------------------------------------- */
+  const loadRackPositions = async (location, force = false) => {
+    if (!location?.id) return;
+    if (rackPositions[location.id] && !force) return;
+
+    setLoadingPositions(prev => ({ ...prev, [location.id]: true }));
     try {
-      const { data } = await api.get('/products');
-      setProducts(data.products || []);
+      const response = await api.get(`/warehouse-locations/${location.id}/positions`);
+      setRackPositions(prev => ({ ...prev, [location.id]: response.data.positions || [] }));
     } catch (err) {
-      console.warn('Could not load products:', err);
-      setProducts([]);
+      console.warn(`Could not load positions for rack ${location.code}:`, err.message);
+      setRackPositions(prev => ({ ...prev, [location.id]: buildEmptyPositions(location) }));
+    } finally {
+      setLoadingPositions(prev => ({ ...prev, [location.id]: false }));
     }
   };
 
-  // Get product sizes for selected category
-  const getProductSizes = () => {
-    if (!formData.rackDesignation || products.length === 0) return [];
-    
-    return products
-      .filter(p => p.category === formData.rackDesignation)
-      .map(p => ({
-        value: p.dimensions || p.sku,
-        label: `${p.dimensions || p.sku} - ${p.model || p.product_name || 'Unknown'}`,
-        // Default rack configurations based on product category/size
-        defaultConfig: getDefaultRackConfig(p.category, p.dimensions)
-      }));
-  };
+  /* --------------------------------------------------------------------------
+     FIELD HANDLER
+  -------------------------------------------------------------------------- */
+  const setField = (field) => (event) =>
+    setFormData(prev => ({ ...prev, [field]: event.target.value }));
 
-  // Get default rack configuration based on product category and size
-  const getDefaultRackConfig = (category, size) => {
-    // Default configurations for different tire sizes
-    const configs = {
-      'Sawtooth': { totalRacks: '3', shelvesPerRack: '4', sectionsPerShelf: '6', subsectionsPerSection: '2' },
-      'Enduro': { totalRacks: '2', shelvesPerRack: '5', sectionsPerShelf: '6', subsectionsPerSection: '2' },
-      'Dual Sport': { totalRacks: '2', shelvesPerRack: '4', sectionsPerShelf: '6', subsectionsPerSection: '2' },
-      'Motocross': { totalRacks: '3', shelvesPerRack: '4', sectionsPerShelf: '6', subsectionsPerSection: '2' },
-      'Trail': { totalRacks: '2', shelvesPerRack: '4', sectionsPerShelf: '6', subsectionsPerSection: '2' },
-      'General': { totalRacks: '1', shelvesPerRack: '4', sectionsPerShelf: '6', subsectionsPerSection: '2' }
-    };
-
-    return configs[category] || { totalRacks: '1', shelvesPerRack: '4', sectionsPerShelf: '6', subsectionsPerSection: '2' };
-  };
-
-
-  const setField = (field) => (e) => setFormData((f) => ({ ...f, [field]: e.target.value }));
-
+  /* --------------------------------------------------------------------------
+     CLOSE RACK MODAL
+  -------------------------------------------------------------------------- */
   const closeModal = () => {
     setShowModal(false);
     setEditingLocation(null);
     setFormData(EMPTY_FORM);
   };
 
-  // ── CRUD ────────────────────────────────────────────────────────────────────
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  /* --------------------------------------------------------------------------
+     CLOSE POSITIONS MODAL
+  -------------------------------------------------------------------------- */
+  const closePositionsModal = () => {
+    setShowPositionsModal(false);
+    setSelectedRack(null);
+    setSelectedPosition(null);
+    setTireSizeInput('');
+    setQuantityInput('0');
+  };
+
+  /* --------------------------------------------------------------------------
+     CREATE / UPDATE RACK
+  -------------------------------------------------------------------------- */
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setSubmitting(true);
+
     try {
-      // Validate required fields
-      if (!formData.code) {
-        showToast('Location code is required', 'error');
-        setSubmitting(false);
-        return;
-      }
-      
-      if (!formData.warehouseCode) {
-        showToast('Warehouse is required', 'error');
-        setSubmitting(false);
+      if (!formData.warehouseCode) { showToast('Warehouse is required', 'error');     return; }
+      if (!formData.rowNumber)     { showToast('Rack row is required', 'error');       return; }
+      if (!formData.rackNumber)    { showToast('Rack number is required', 'error');    return; }
+
+      const rackCapacity = calcRackCapacity(formData);
+      if (rackCapacity <= 0) {
+        showToast('Please configure sections, shelves, subsections and tires/subsection', 'error');
         return;
       }
 
-      if (!formData.capacity || parseInt(formData.capacity) <= 0) {
-        showToast('Capacity must be greater than 0', 'error');
-        setSubmitting(false);
-        return;
-      }
-
-      // Transform frontend data to match database schema
-      const capacity = parseInt(formData.capacity) || 0;
       const currentStock = parseInt(formData.current_stock) || 0;
+      if (currentStock > rackCapacity) {
+        showToast('Current stock cannot exceed rack capacity', 'error');
+        return;
+      }
 
-      const dbData = {
-        code: formData.code.trim(),
-        name: `${formData.warehouseCode} - ${formData.rackDesignation || 'General'} ${formData.rackSize || ''}`.trim(),
-        zone: formData.warehouseCode,
-        aisle: String(formData.totalRacks).padStart(2, '0'),
-        rack: String(formData.shelvesPerRack).padStart(2, '0'),
-        shelf: String(formData.sectionsPerShelf).padStart(2, '0'),
-        capacity: capacity,
-        current_stock: currentStock,
-        status: formData.status || 'active'
+      const locationCode = formData.code ||
+        generateRackCode(formData.warehouseCode, formData.rowNumber, formData.rackNumber);
+
+      const locationMetadata = {
+        structureVersion:      3,
+        warehouseCode:         formData.warehouseCode,
+        rowNumber:             parseInt(formData.rowNumber),
+        rackNumber:            parseInt(formData.rackNumber),
+        rackType:              formData.rackType,
+        sectionsPerRack:       parseInt(formData.sectionsPerRack),
+        shelvesPerSection:     parseInt(formData.shelvesPerSection),
+        subsectionsPerSection: parseInt(formData.subsectionsPerSection),
+        tiresPerSubsection:    parseInt(formData.tiresPerSubsection),
+        exactLocationFormat:   `${locationCode}-S##-SH##-SUB##`,
       };
 
-      console.log('Submitting warehouse location:', dbData);
+      const dbData = {
+        code:          locationCode.trim(),
+        name:          `${formData.warehouseCode} - Row ${padNumber(formData.rowNumber)} - Rack ${padNumber(formData.rackNumber)}`,
+        zone:          formData.warehouseCode,
+        aisle:         padNumber(formData.rowNumber),
+        rack:          padNumber(formData.rackNumber),
+        shelf:         String(formData.sectionsPerRack).padStart(2, '0'),
+        capacity:      rackCapacity,
+        current_stock: currentStock,
+        status:        formData.status || 'active',
+        metadata:      locationMetadata,
+      };
 
-      if (editingLocation) {
-        await api.put(`/warehouse-locations/${editingLocation.id}`, dbData);
-        showToast('Location updated successfully', 'success');
-      } else {
-        await api.post('/warehouse-locations', dbData);
-        showToast('Location created successfully', 'success');
+      const isMetaMissing = (err) =>
+        (err?.response?.data?.error || err?.message || '').toLowerCase().includes('metadata');
+
+      const save = async (payload, id) =>
+        id ? api.put(`/warehouse-locations/${id}`, payload) : api.post('/warehouse-locations', payload);
+
+      try {
+        await save(dbData, editingLocation?.id);
+      } catch (metaErr) {
+        if (isMetaMissing(metaErr)) {
+          console.warn('metadata column missing — saving without it. Run 025_add_metadata_to_warehouse_locations.sql');
+          const { metadata: _omit, ...withoutMeta } = dbData;
+          await save(withoutMeta, editingLocation?.id);
+        } else {
+          throw metaErr;
+        }
       }
+
+      showToast(
+        editingLocation ? 'Rack location updated successfully' : 'Rack location created successfully',
+        'success'
+      );
+      await loadLocations();
       closeModal();
-      loadLocations();
-    } catch (err) {
-      console.error('Submit error:', err);
-      const errorMsg = err.response?.data?.error || err.message || 'Operation failed';
-      showToast(errorMsg, 'error');
+
+    } catch (error) {
+      console.error('Warehouse location submit error:', error);
+      showToast(error.response?.data?.error || error.message || 'Operation failed', 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
+  /* --------------------------------------------------------------------------
+     EDIT LOCATION
+  -------------------------------------------------------------------------- */
   const handleEdit = (location) => {
+    const meta = location.metadata || {};
     setEditingLocation(location);
-    setFormData(location);
+    setFormData({
+      ...EMPTY_FORM,
+      code:                  location.code || '',
+      warehouseCode:         meta.warehouseCode         || location.zone        || '',
+      rowNumber:             String(meta.rowNumber      ?? parseInt(location.aisle) ?? 1),
+      rackNumber:            String(meta.rackNumber     ?? parseInt(location.rack)  ?? 1),
+      rackType:              meta.rackType              || 'Standard Tire Rack',
+      sectionsPerRack:       String(meta.sectionsPerRack       ?? parseInt(location.shelf) ?? 6),
+      shelvesPerSection:     String(meta.shelvesPerSection     ?? 8),
+      subsectionsPerSection: String(meta.subsectionsPerSection ?? 2),
+      tiresPerSubsection:    String(meta.tiresPerSubsection    ?? 14),
+      current_stock:         String(location.current_stock     ?? 0),
+      status:                location.status || 'active',
+    });
     setShowModal(true);
   };
 
+  /* --------------------------------------------------------------------------
+     DELETE LOCATION
+  -------------------------------------------------------------------------- */
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this location?')) return;
+    if (!confirm('Are you sure you want to delete this rack location?')) return;
     try {
       await api.delete(`/warehouse-locations/${id}`);
-      showToast('Location deleted successfully', 'success');
-      loadLocations();
-    } catch {
-      showToast('Failed to delete location', 'error');
+      showToast('Rack location deleted successfully', 'success');
+      await loadLocations();
+    } catch (err) {
+      showToast(err.response?.data?.error || 'Failed to delete rack location', 'error');
     }
   };
 
-  // ── Filtering ───────────────────────────────────────────────────────────────
-  const warehouseCodes = [...new Set(locations.map((l) => l.zone).filter(Boolean))];
-  const filteredLocations = locations.filter((loc) => {
-    const q = searchQuery.toLowerCase();
-    return (
-      (loc.code?.toLowerCase().includes(q) || loc.zone?.toLowerCase().includes(q) || loc.name?.toLowerCase().includes(q)) &&
-      (filterZone === 'all' || loc.zone === filterZone)
-    );
+  /* --------------------------------------------------------------------------
+     OPEN POSITION VIEWER
+  -------------------------------------------------------------------------- */
+  const openPositions = async (location) => {
+    setSelectedRack(location);
+    await loadRackPositions(location);
+    setShowPositionsModal(true);
+  };
+
+  /* --------------------------------------------------------------------------
+     SELECT POSITION (open assignment modal)
+  -------------------------------------------------------------------------- */
+  const selectPosition = (position) => {
+    setSelectedPosition(position);
+    setTireSizeInput(position.tire_size || position.tireSize || '');
+    setQuantityInput(String(position.current_stock || position.quantity || 0));
+  };
+
+  /* --------------------------------------------------------------------------
+     SAVE TIRE ASSIGNMENT
+  -------------------------------------------------------------------------- */
+  const savePosition = async () => {
+    if (!selectedRack || !selectedPosition) return;
+
+    const quantity = parseInt(quantityInput) || 0;
+    const capacity = Number(selectedPosition.capacity || 0);
+
+    if (quantity < 0) { showToast('Quantity cannot be negative', 'error'); return; }
+    if (quantity > capacity) { showToast(`Quantity cannot exceed position capacity of ${capacity}`, 'error'); return; }
+    if (quantity > 0 && !tireSizeInput.trim()) {
+      showToast('Tire size is required when quantity is greater than zero', 'error');
+      return;
+    }
+
+    setPositionSaving(true);
+    try {
+      await api.put(
+        `/warehouse-locations/${selectedRack.id}/positions/${selectedPosition.id}`,
+        { tire_size: quantity > 0 ? tireSizeInput.trim() : null, quantity }
+      );
+
+      showToast('Tire position updated successfully', 'success');
+      await loadRackPositions(selectedRack, true);
+      await loadLocations();
+
+      // refresh selectedRack reference
+      setSelectedRack(prev => locations.find(l => l.id === prev?.id) || prev);
+      setSelectedPosition(null);
+      setTireSizeInput('');
+      setQuantityInput('0');
+    } catch (error) {
+      console.error('Position update error:', error);
+      showToast(error.response?.data?.error || error.message || 'Failed to update tire position', 'error');
+    } finally {
+      setPositionSaving(false);
+    }
+  };
+
+  /* --------------------------------------------------------------------------
+     FILTERING
+  -------------------------------------------------------------------------- */
+  const warehouseCodes = [...new Set(locations.map(l => l.zone).filter(Boolean))];
+
+  const filteredLocations = locations.filter(location => {
+    const query = searchQuery.toLowerCase();
+    const meta  = location.metadata || {};
+    const text  = [location.code, location.name, location.zone, meta.rowNumber, meta.rackNumber, meta.rackType]
+      .filter(Boolean).join(' ').toLowerCase();
+    return text.includes(query) && (filterZone === 'all' || location.zone === filterZone);
   });
 
-  const statusBadge = (s) => ({
+  /* --------------------------------------------------------------------------
+     RACK TIRE SUMMARY (from loaded positions)
+  -------------------------------------------------------------------------- */
+  const getRackTireSummary = (location) => {
+    const positions = rackPositions[location.id] || [];
+    const summary   = {};
+    positions.forEach(pos => {
+      const tireSize = pos.tire_size || pos.tireSize;
+      const qty      = Number(pos.current_stock || pos.quantity || 0);
+      if (tireSize && qty > 0) summary[tireSize] = (summary[tireSize] || 0) + qty;
+    });
+    return Object.entries(summary).sort((a, b) => b[1] - a[1]);
+  };
+
+  /* --------------------------------------------------------------------------
+     STYLE HELPERS
+  -------------------------------------------------------------------------- */
+  const statusBadge = (status) => ({
     active:      'bg-green-100 text-green-700',
     full:        'bg-amber-100 text-amber-700',
     empty:       'bg-slate-100 text-slate-600',
-    maintenance: 'bg-red-100   text-red-700',
-  }[s] ?? 'bg-slate-100 text-slate-600');
+    maintenance: 'bg-red-100 text-red-700',
+  }[status] || 'bg-slate-100 text-slate-600');
 
-  const capacityColor = (cur, cap) => {
-    const pct = (cur / cap) * 100;
-    if (pct >= 90) return 'text-red-600';
-    if (pct >= 70) return 'text-amber-600';
-    return 'text-green-600';
-  };
-
-  // ── Table columns ───────────────────────────────────────────────────────────
-  const columns = [
-    { key: 'code', label: 'Location Code', sortable: true },
-    { 
-      key: 'zone', 
-      label: 'Warehouse',
-      render: (val) => val || 'N/A'
-    },
-    { 
-      key: 'name', 
-      label: 'Rack Type',
-      render: (val) => {
-        if (!val) return <span className="text-slate-400">N/A</span>;
-        // Extract rack designation from name (e.g., "WH1 - Sawtooth 90/90-ST")
-        const parts = val.split(' - ');
-        if (parts.length > 1) {
-          return (
-            <div className="flex flex-col gap-0.5">
-              <span className="inline-flex px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs font-medium">
-                {parts[1]}
-              </span>
-            </div>
-          );
-        }
-        return <span className="text-xs text-slate-600">{val}</span>;
-      }
-    },
-    { 
-      key: 'config', 
-      label: 'Configuration',
-      render: (_, row) => {
-        if (!row || !row.aisle || !row.rack || !row.shelf) {
-          return <span className="text-xs text-slate-400">-</span>;
-        }
-        // Display as: aisle(R) × rack(S) × shelf(Sec) × Sub
-        return (
-          <span className="text-xs text-slate-600">
-            {row.aisle}R × {row.rack}S × {row.shelf}Sec × Sub
-          </span>
-        );
-      }
-    },
-    {
-      key: 'capacity', label: 'Capacity',
-      render: (_, row) => row ? (
-        <span>
-          <span className={`font-semibold ${capacityColor(row.current_stock, row.capacity)}`}>
-            {row.current_stock}
-          </span>
-          <span className="text-slate-400"> / {row.capacity}</span>
-        </span>
-      ) : '-',
-    },
-    {
-      key: 'utilization', label: 'Utilization',
-      render: (_, row) => {
-        if (!row) return '-';
-        const pct = Math.round((row.current_stock / row.capacity) * 100);
-        return (
-          <div className="flex items-center gap-2">
-            <div className="w-20 bg-slate-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-green-500'}`}
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <span className="text-xs text-slate-500">{pct}%</span>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'status', label: 'Status',
-      render: (val) => {
-        const s = typeof val === 'string' ? val : String(val ?? 'unknown');
-        return (
-          <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${statusBadge(s)}`}>
-            {s.charAt(0).toUpperCase() + s.slice(1)}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'actions', label: 'Actions',
-      render: (_, row) => row ? (
-        <div className="flex gap-1.5">
-          {hasRole('admin', 'manager', 'operational_staff') && (
-            <button
-              onClick={() => handleEdit(row)}
-              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-              title="Edit"
-            >
-              <Edit size={15} />
-            </button>
-          )}
-          {hasRole('admin', 'manager') && (
-            <button
-              onClick={() => handleDelete(row.id)}
-              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-              title="Delete"
-            >
-              <Trash2 size={15} />
-            </button>
-          )}
-        </div>
-      ) : null,
-    },
-  ];
+  const totalCapacity = locations.reduce((s, l) => s + (parseInt(l.capacity)      || 0), 0);
+  const totalStock    = locations.reduce((s, l) => s + (parseInt(l.current_stock) || 0), 0);
 
   if (loading) return <Loading />;
 
+  /* ==========================================================================
+     RENDER
+  ========================================================================== */
   return (
     <motion.div initial="hidden" animate="visible" variants={fadeIn} className="space-y-6">
 
-      {/* Page header */}
+      {/* ── Page Header ───────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Warehouse Locations</h1>
-          <p className="mt-0.5 text-sm text-slate-500">Manage storage locations and capacity</p>
+          <p className="mt-0.5 text-sm text-slate-500">Manage racks, storage positions, and tire assignments</p>
         </div>
         {hasRole('admin', 'manager', 'operational_staff') && (
           <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 transition-colors"
+            onClick={() => { setEditingLocation(null); setFormData(EMPTY_FORM); setShowModal(true); }}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
           >
-            <Plus size={16} /> Add Location
+            <Plus size={16} /> Add Rack
           </button>
         )}
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* ── Summary Cards ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {[
-          { label: 'Total Locations', value: locations.length,                                         Icon: MapPin,  bg: 'bg-blue-50',   iconCls: 'bg-blue-100 text-blue-600',     val: 'text-blue-700'   },
-          { label: 'Total Capacity',  value: locations.reduce((s, l) => s + (parseInt(l.capacity) || 0), 0),             Icon: Package, bg: 'bg-green-50',  iconCls: 'bg-green-100 text-green-600',   val: 'text-green-700'  },
-          { label: 'Current Stock',   value: locations.reduce((s, l) => s + (parseInt(l.current_stock) || 0), 0),  Icon: Box,     bg: 'bg-amber-50',  iconCls: 'bg-amber-100 text-amber-600',   val: 'text-amber-700'  },
-          { label: 'Warehouses',           value: warehouseCodes.length,                                             Icon: Grid2x2, bg: 'bg-purple-50', iconCls: 'bg-purple-100 text-purple-600', val: 'text-purple-700' },
+          { label: 'Total Racks',    value: locations.length,    Icon: LayoutGrid, bg: 'bg-blue-50',   iconCls: 'bg-blue-100 text-blue-600',     val: 'text-blue-700'   },
+          { label: 'Total Capacity', value: totalCapacity,        Icon: Package,    bg: 'bg-green-50',  iconCls: 'bg-green-100 text-green-600',   val: 'text-green-700'  },
+          { label: 'Current Stock',  value: totalStock,           Icon: Box,        bg: 'bg-amber-50',  iconCls: 'bg-amber-100 text-amber-600',   val: 'text-amber-700'  },
+          { label: 'Warehouses',     value: warehouseCodes.length, Icon: Warehouse, bg: 'bg-purple-50', iconCls: 'bg-purple-100 text-purple-600', val: 'text-purple-700' },
         ].map(({ label, value, Icon, bg, iconCls, val }) => (
           <div key={label} className={`${bg} rounded-xl border border-slate-200 p-4`}>
             <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${iconCls}`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${iconCls}`}>
                 <Icon size={20} />
               </div>
               <div>
                 <p className="text-xs text-slate-500">{label}</p>
-                <p className={`text-2xl font-bold ${val}`}>{value}</p>
+                <p className={`text-2xl font-bold ${val}`}>{Number(value).toLocaleString()}</p>
               </div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="flex flex-col md:flex-row gap-3">
+      {/* ── Filters ───────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-3 md:flex-row">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
               type="text"
-              placeholder="Search by code or name..."
+              placeholder="Search rack code, row, rack number..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400"
+              className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-4 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
             />
           </div>
-          <div className="relative w-full md:w-44">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+          <div className="relative w-full md:w-52">
+            <Filter className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <select
               value={filterZone}
               onChange={(e) => setFilterZone(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 bg-white"
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-4 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100"
             >
               <option value="all">All Warehouses</option>
-              {warehouseCodes.map((code) => <option key={code} value={code}>Warehouse {code}</option>)}
+              {warehouseCodes.map(code => (
+                <option key={code} value={code}>{code}</option>
+              ))}
             </select>
           </div>
         </div>
       </div>
 
-      {/* Data table */}
-      <div className="bg-white rounded-xl border border-slate-200">
-        {!dbReady ? (
-          /* Table hasn't been created — prompt admin to run migration */
-          <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-amber-100 flex items-center justify-center">
-              <Layers size={28} className="text-amber-600" />
-            </div>
-            <div>
-              <p className="text-base font-semibold text-slate-800">Database table not set up yet</p>
-              <p className="mt-1 text-sm text-slate-500 max-w-md">
-                The <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs font-mono">warehouse_locations</code> table
-                does not exist in Supabase. Run the SQL migration to start managing locations.
-              </p>
-            </div>
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-left text-xs font-mono text-amber-800 max-w-sm w-full">
-              Supabase Dashboard → SQL Editor<br />
-              → Run: <strong>008_warehouse_locations.sql</strong>
-            </div>
+      {/* ── Main Content ──────────────────────────────────────────── */}
+      {!dbReady ? (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-slate-200 bg-white px-6 py-14 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100">
+            <Layers size={28} className="text-amber-600" />
           </div>
-        ) : filteredLocations.length > 0 ? (
-          <Table columns={columns} data={filteredLocations} />
-        ) : (
-          <div className="flex flex-col items-center justify-center gap-4 px-6 py-14 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
-              <MapPin size={26} className="text-blue-400" />
-            </div>
-            <div>
-              <p className="text-base font-semibold text-slate-800">No locations yet</p>
-              <p className="mt-1 text-sm text-slate-500">
-                Add your first warehouse location to start tracking storage and capacity.
-              </p>
-            </div>
-            {hasRole('admin', 'manager', 'operational_staff') && (
-              <button
-                onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-sm"
-              >
-                <Plus size={15} /> Add First Location
-              </button>
-            )}
+          <div>
+            <p className="text-base font-semibold text-slate-800">Database table not set up yet</p>
+            <p className="mt-1 text-sm text-slate-500">
+              Run <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono">008_warehouse_locations.sql</code> in Supabase SQL Editor.
+            </p>
           </div>
-        )}
-      </div>
+        </div>
+
+      ) : filteredLocations.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-slate-200 bg-white px-6 py-14 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50">
+            <MapPin size={26} className="text-blue-400" />
+          </div>
+          <div>
+            <p className="text-base font-semibold text-slate-800">No rack locations yet</p>
+            <p className="mt-1 text-sm text-slate-500">Add your physical racks to start generating exact tire locations.</p>
+          </div>
+          {hasRole('admin', 'manager', 'operational_staff') && (
+            <button
+              onClick={() => { setEditingLocation(null); setFormData(EMPTY_FORM); setShowModal(true); }}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+            >
+              <Plus size={15} /> Add First Rack
+            </button>
+          )}
+        </div>
+
+      ) : (
+        /* ── Warehouse Folder Groups ── */
+        <div className="space-y-3">
+          {(() => {
+            const groups = {};
+            filteredLocations.forEach(loc => {
+              const key = loc.zone || 'Unknown';
+              if (!groups[key]) groups[key] = [];
+              groups[key].push(loc);
+            });
+
+            return Object.entries(groups).map(([warehouseCode, locs]) => {
+              const isOpen     = openFolders[warehouseCode] !== false;
+              const totalCap   = locs.reduce((s, l) => s + (parseInt(l.capacity)      || 0), 0);
+              const totalSt    = locs.reduce((s, l) => s + (parseInt(l.current_stock) || 0), 0);
+              const pct        = totalCap > 0 ? Math.round((totalSt / totalCap) * 100) : 0;
+              const whName     = warehouses.find(w => w.code === warehouseCode)?.name || warehouseCode;
+
+              return (
+                <div key={warehouseCode} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+
+                  {/* Warehouse folder header */}
+                  <button
+                    type="button"
+                    onClick={() => setOpenFolders(prev => ({ ...prev, [warehouseCode]: !isOpen }))}
+                    className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3.5 transition-colors hover:bg-slate-100"
+                  >
+                    <div className="flex items-center gap-3">
+                      {isOpen
+                        ? <ChevronDown  size={16} className="shrink-0 text-slate-500" />
+                        : <ChevronRight size={16} className="shrink-0 text-slate-500" />
+                      }
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100">
+                        <Warehouse size={17} className="text-blue-600" />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-bold text-slate-900">{whName}</p>
+                        <p className="text-xs text-slate-500">{locs.length} physical rack{locs.length !== 1 ? 's' : ''}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 pr-1">
+                      <div className="hidden items-center gap-1.5 text-xs text-slate-500 sm:flex">
+                        <Package size={13} />
+                        <span className="font-semibold text-slate-700">{totalSt.toLocaleString()}</span>
+                        <span>/</span>
+                        <span>{totalCap.toLocaleString()} tires</span>
+                      </div>
+                      <div className="hidden items-center gap-2 md:flex">
+                        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-200">
+                          <div
+                            className={`h-full rounded-full transition-all ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs font-bold ${pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-slate-600'}`}>
+                          {pct}%
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Rack table */}
+                  {isOpen && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="border-b border-slate-100 bg-white text-xs font-bold uppercase tracking-wider text-slate-400">
+                          <tr>
+                            <th className="px-5 py-2.5">Rack Code</th>
+                            <th className="px-5 py-2.5">Physical Location</th>
+                            <th className="px-5 py-2.5">Configuration</th>
+                            <th className="px-5 py-2.5">Tire Sizes</th>
+                            <th className="px-5 py-2.5">Capacity</th>
+                            <th className="px-5 py-2.5">Utilization</th>
+                            <th className="px-5 py-2.5">Status</th>
+                            <th className="px-5 py-2.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {locs
+                            .sort((a, b) => {
+                              const aMeta = a.metadata || {}, bMeta = b.metadata || {};
+                              const aRow  = aMeta.rowNumber  ?? parseInt(a.aisle) ?? 0;
+                              const bRow  = bMeta.rowNumber  ?? parseInt(b.aisle) ?? 0;
+                              if (aRow !== bRow) return aRow - bRow;
+                              return (aMeta.rackNumber ?? parseInt(a.rack) ?? 0) - (bMeta.rackNumber ?? parseInt(b.rack) ?? 0);
+                            })
+                            .map(location => {
+                              const meta        = location.metadata || {};
+                              const rowNumber   = meta.rowNumber   ?? parseInt(location.aisle);
+                              const rackNumber  = meta.rackNumber  ?? parseInt(location.rack);
+                              const sections    = meta.sectionsPerRack       ?? parseInt(location.shelf) ?? 0;
+                              const shelves     = meta.shelvesPerSection     ?? 8;
+                              const subsections = meta.subsectionsPerSection ?? 2;
+                              const tires       = meta.tiresPerSubsection    ?? 0;
+                              const locPct      = location.capacity > 0
+                                ? Math.round((location.current_stock / location.capacity) * 100) : 0;
+                              const tireSummary = getRackTireSummary(location);
+
+                              return (
+                                <tr key={location.id} className="transition-colors hover:bg-blue-50/30">
+
+                                  {/* Rack Code */}
+                                  <td className="px-5 py-4">
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="font-mono text-xs font-bold text-blue-700">{location.code}</span>
+                                      <span className="text-[10px] text-slate-400">
+                                        {calcStoragePositions({ sectionsPerRack: sections, shelvesPerSection: shelves, subsectionsPerSection: subsections }).toLocaleString()} storage positions
+                                      </span>
+                                    </div>
+                                  </td>
+
+                                  {/* Physical Location */}
+                                  <td className="px-5 py-4">
+                                    <div className="flex items-center gap-2">
+                                      <Rows3 size={15} className="text-blue-500" />
+                                      <div>
+                                        <p className="text-xs font-semibold text-slate-700">Row {padNumber(rowNumber)}</p>
+                                        <p className="text-xs text-slate-500">Rack {padNumber(rackNumber)}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* Configuration */}
+                                  <td className="px-5 py-4">
+                                    <div className="space-y-0.5 text-xs">
+                                      <div className="font-medium text-slate-700">{sections} Sec × {shelves} Sh × {subsections} Sub</div>
+                                      <div className="font-semibold text-emerald-700">{tires} max/subsection</div>
+                                    </div>
+                                  </td>
+
+                                  {/* Tire Sizes */}
+                                  <td className="max-w-xs px-5 py-4">
+                                    {tireSummary.length === 0 ? (
+                                      <div className="flex flex-col gap-1">
+                                        <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+                                          No tire assigned
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => openPositions(location)}
+                                          className="w-fit text-[10px] font-semibold text-blue-600 hover:text-blue-800"
+                                        >
+                                          Assign tire →
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex max-w-xs flex-wrap gap-1.5">
+                                        {tireSummary.slice(0, 4).map(([size, qty]) => (
+                                          <TireSizeBadge key={size} tireSize={size} quantity={qty} />
+                                        ))}
+                                        {tireSummary.length > 4 && (
+                                          <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+                                            +{tireSummary.length - 4} more
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </td>
+
+                                  {/* Capacity */}
+                                  <td className="px-5 py-4">
+                                    <span className={`text-sm font-semibold ${capacityColor(location.current_stock, location.capacity)}`}>
+                                      {Number(location.current_stock || 0).toLocaleString()}
+                                    </span>
+                                    <span className="text-xs text-slate-400"> / {Number(location.capacity || 0).toLocaleString()}</span>
+                                  </td>
+
+                                  {/* Utilization */}
+                                  <td className="px-5 py-4">
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-2 w-20 overflow-hidden rounded-full bg-slate-200">
+                                        <div
+                                          className={`h-full rounded-full ${locPct >= 90 ? 'bg-red-500' : locPct >= 70 ? 'bg-amber-500' : 'bg-green-500'}`}
+                                          style={{ width: `${Math.min(locPct, 100)}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-xs text-slate-500">{locPct}%</span>
+                                    </div>
+                                  </td>
+
+                                  {/* Status */}
+                                  <td className="px-5 py-4">
+                                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(location.status)}`}>
+                                      {(location.status || 'unknown').charAt(0).toUpperCase() + (location.status || 'unknown').slice(1)}
+                                    </span>
+                                  </td>
+
+                                  {/* Actions */}
+                                  <td className="px-5 py-4 text-right">
+                                    <div className="flex justify-end gap-1.5">
+                                      <button
+                                        onClick={() => openPositions(location)}
+                                        className="rounded-lg p-1.5 text-emerald-600 transition-colors hover:bg-emerald-100"
+                                        title="View Storage Positions"
+                                      >
+                                        <Eye size={14} />
+                                      </button>
+                                      {hasRole('admin', 'manager', 'operational_staff') && (
+                                        <button
+                                          onClick={() => handleEdit(location)}
+                                          className="rounded-lg p-1.5 text-blue-600 transition-colors hover:bg-blue-100"
+                                          title="Edit Rack"
+                                        >
+                                          <Edit size={14} />
+                                        </button>
+                                      )}
+                                      {hasRole('admin', 'manager') && (
+                                        <button
+                                          onClick={() => handleDelete(location.id)}
+                                          className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50"
+                                          title="Delete Rack"
+                                        >
+                                          <Trash2 size={14} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
+        </div>
+      )}
 
       {/* ================================================================
-          ADD / EDIT MODAL - REDESIGNED WITH FIXED BUTTONS
+          ADD / EDIT RACK MODAL
       ================================================================ */}
       <Modal
         isOpen={showModal}
@@ -560,395 +946,404 @@ export default function WarehouseLocations() {
         title={
           <span className="flex items-center gap-2">
             <MapPin size={16} className="text-blue-500" />
-            {editingLocation ? 'Edit Warehouse Location' : 'Add New Warehouse Location'}
+            {editingLocation ? 'Edit Physical Rack' : 'Add Physical Rack'}
           </span>
         }
       >
-        <form id="location-form" onSubmit={handleSubmit} className="flex flex-col h-full max-h-[calc(90vh-120px)]">
-          
-          {/* Scrollable Content Area */}
-          <div className="flex-1 overflow-y-auto pr-2 space-y-5">
+        <form onSubmit={handleSubmit} className="flex h-full max-h-[calc(90vh-120px)] flex-col">
+          <div className="flex-1 space-y-5 overflow-y-auto pr-2">
 
-            {/* Location Code */}
+            {/* ── Warehouse ── */}
             <div className="space-y-3">
-              <SectionHeader icon={Hash} label="Location Code" />
-              <Field label="Location Code" required hint="Auto-generated unique identifier">
-                <TextInput
-                  icon={Hash}
-                  value={formData.code || ''}
-                  onChange={setField('code')}
-                  placeholder="Will be auto-generated..."
-                  readOnly={!editingLocation}
-                  className={!editingLocation ? 'bg-slate-100 cursor-not-allowed' : ''}
-                  required
-                />
-              </Field>
-            </div>
-
-            <hr className="border-slate-100" />
-
-            {/* Warehouse Selection */}
-            <div className="space-y-3">
-              <SectionHeader icon={MapPin} label="Warehouse" />
-              <Field label="Select Warehouse" required hint="Choose which warehouse this location belongs to">
+              <SectionHeader icon={Warehouse} label="Warehouse" />
+              <Field label="Select Warehouse" required hint="Choose the warehouse where this physical rack is located">
                 <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
+                  <Warehouse className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                   <select
-                    value={formData.warehouseCode || ''}
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData,
-                        warehouseCode: e.target.value
-                      });
-                    }}
-                    className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none transition
-                      focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100 cursor-pointer"
+                    value={formData.warehouseCode}
+                    onChange={(e) => setFormData(prev => ({ ...prev, warehouseCode: e.target.value }))}
+                    className="w-full cursor-pointer rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
                     required
                   >
                     <option value="" disabled>Select Warehouse...</option>
                     {warehouses.map(wh => (
-                      <option key={wh.id} value={wh.code}>
-                        {wh.name} ({wh.code})
-                      </option>
+                      <option key={wh.id} value={wh.code}>{wh.name} ({wh.code})</option>
                     ))}
                   </select>
                 </div>
+                {warehouses.length === 0 && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-700">
+                    <AlertCircle size={13} />
+                    No warehouses found. Add warehouses first before creating rack locations.
+                  </p>
+                )}
               </Field>
-
-              {warehouses.length === 0 && (
-                <div className="p-3 rounded-lg bg-amber-50 border border-amber-300">
-                  <p className="text-xs text-amber-800 font-medium flex items-center gap-2">
-                    <AlertCircle size={14} />
-                    No warehouses found. Please add warehouses via SQL first.
-                  </p>
-                  <p className="text-xs text-amber-700 mt-2">
-                    Run this SQL in Supabase:
-                  </p>
-                  <code className="block mt-1 p-2 bg-amber-100 rounded text-xs text-amber-900 font-mono">
-                    INSERT INTO warehouse_locations (code, name, zone, aisle, rack, shelf, capacity, current_stock, status)<br/>
-                    VALUES ('WH1', 'Main Warehouse', 'A', '01', '01', '01', 1000, 0, 'active'),<br/>
-                    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;('WH2', 'Second Warehouse', 'B', '01', '01', '01', 1000, 0, 'active');
-                  </code>
-                </div>
-              )}
             </div>
 
             <hr className="border-slate-100" />
 
-            {/* Product/Category Designation */}
+            {/* ── Physical Rack Position ── */}
             <div className="space-y-3">
-              <SectionHeader icon={Package} label="Rack Designation" />
-              <Field label="Product Category" required hint="What product category will these racks hold?">
-                <div className="relative">
-                  <Package className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
-                  <select
-                    value={formData.rackDesignation || ''}
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData,
-                        rackDesignation: e.target.value,
-                        rackSize: ''  // Reset size when category changes
-                      });
-                    }}
-                    className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-900 outline-none transition
-                      focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100 cursor-pointer"
-                    required
-                  >
-                    <option value="" disabled>Select Product Category...</option>
-                    <option value="Sawtooth">Sawtooth Tires</option>
-                    <option value="Enduro">Enduro Tires</option>
-                    <option value="Dual Sport">Dual Sport Tires</option>
-                    <option value="Motocross">Motocross Tires</option>
-                    <option value="Trail">Trail Tires</option>
-                    <option value="General">General Purpose</option>
-                  </select>
-                </div>
-              </Field>
-
-              {/* Size Selector - Shows after category is selected */}
-              {formData.rackDesignation && formData.rackDesignation !== 'General' && (
-                <Field label="Product Size" required hint="Select the specific tire size for this rack">
-                  <div className="relative">
-                    <Tag className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
-                    <select
-                      value={formData.rackSize || ''}
-                      onChange={(e) => {
-                        const selectedSize = e.target.value;
-                        setFormData(prev => ({ ...prev, rackSize: selectedSize }));
-                        
-                        // Auto-fill rack configuration based on selected product
-                        const sizeOptions = getProductSizes();
-                        const selectedProduct = sizeOptions.find(s => s.value === selectedSize);
-                        
-                        if (selectedProduct && selectedProduct.defaultConfig) {
-                          // Auto-fill but user can still edit
-                          setFormData(prev => ({
-                            ...prev,
-                            rackSize: selectedSize,
-                            totalRacks: selectedProduct.defaultConfig.totalRacks,
-                            shelvesPerRack: selectedProduct.defaultConfig.shelvesPerRack,
-                            sectionsPerShelf: selectedProduct.defaultConfig.sectionsPerShelf,
-                            subsectionsPerSection: selectedProduct.defaultConfig.subsectionsPerSection
-                          }));
-                          
-                          showToast(`Auto-filled rack configuration for ${formData.rackDesignation}. You can still edit if needed.`, 'success');
-                        }
-                      }}
-                      className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-blue-300 bg-blue-50 text-sm text-blue-900 font-medium outline-none transition
-                        focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-200 cursor-pointer"
-                      required
-                    >
-                      <option value="" disabled>Select Size...</option>
-                      {getProductSizes().length > 0 ? (
-                        getProductSizes().map(size => (
-                          <option key={size.value} value={size.value}>
-                            {size.label}
-                          </option>
-                        ))
-                      ) : (
-                        <option value="" disabled>No sizes available for this category</option>
-                      )}
-                    </select>
-                  </div>
+              <SectionHeader icon={Rows3} label="Physical Rack Position" />
+              <p className="text-xs text-slate-500">
+                Each location represents one physical rack.
+                Tire sizes are assigned to individual storage positions, not to the entire rack.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Rack Row" required hint="Example: Row 1 to Row 7">
+                  <TextInput icon={Rows3}    type="number" min="1" max="100" value={formData.rowNumber}  onChange={setField('rowNumber')}  required />
                 </Field>
-              )}
-
-              {/* Display Selected Product Info */}
-              {formData.rackDesignation && formData.rackSize && (
-                <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-300">
-                  <div className="text-xs font-semibold text-emerald-700 mb-1">✅ Rack Configured For:</div>
-                  <div className="text-xs text-emerald-900 font-medium">
-                    {formData.rackDesignation} - {formData.rackSize}
-                  </div>
-                  <div className="text-[10px] text-emerald-600 mt-1">
-                    Configuration auto-filled below. Edit if needed.
-                  </div>
-                </div>
-              )}
+                <Field label="Rack Number" required hint="Example: Rack 1 or Rack 2">
+                  <TextInput icon={Grid2x2} type="number" min="1" max="100" value={formData.rackNumber} onChange={setField('rackNumber')} required />
+                </Field>
+              </div>
+              <Field label="Rack Type" hint="Optional physical rack description">
+                <TextInput icon={Archive} value={formData.rackType} onChange={setField('rackType')} placeholder="Standard Tire Rack" />
+              </Field>
             </div>
 
             <hr className="border-slate-100" />
 
-            {/* Rack Configuration */}
+            {/* ── Rack Code ── */}
+            <div className="space-y-3">
+              <SectionHeader icon={Hash} label="Rack Location Code" />
+              <Field label="Rack Code" required hint="Automatically generated from Warehouse + Row + Rack">
+                <TextInput icon={Hash} value={formData.code} readOnly className="cursor-not-allowed bg-slate-100 font-mono font-semibold" />
+              </Field>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-blue-600">Example Exact Product Location</p>
+                <p className="font-mono text-xs font-bold text-blue-800">
+                  {generateExactLocationExample(formData.warehouseCode, formData.rowNumber, formData.rackNumber)}
+                </p>
+                <p className="mt-1 text-[10px] text-blue-600">
+                  Example: Section → Shelf → Subsection can each hold different tire sizes.
+                </p>
+              </div>
+            </div>
+
+            <hr className="border-slate-100" />
+
+            {/* ── Rack Configuration ── */}
             <div className="space-y-3">
               <SectionHeader icon={Layers} label="Rack Configuration" />
-              <p className="text-xs text-slate-600 mb-3">
-                Configuration will auto-fill when you select a product size. Shows totals across all racks.
+              <p className="text-xs text-slate-600">
+                Configure the physical structure. These define maximum physical capacity, not tire size.
               </p>
-
-              <div className="space-y-3">
-                {/* Total Racks */}
-                <Field label="Total Racks" required hint="How many racks for this product">
-                  <TextInput
-                    icon={Grid2x2}
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={formData.totalRacks || '1'}
-                    onChange={setField('totalRacks')}
-                    placeholder="e.g., 2"
-                    required
-                  />
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Sections / Rack"    required hint="Example: 6">
+                  <TextInput icon={Box}        type="number" min="1" max="50"  value={formData.sectionsPerRack}       onChange={setField('sectionsPerRack')}       required />
                 </Field>
-
-                {/* Grid for per-rack values */}
-                <div className="grid grid-cols-3 gap-3">
-                  <Field label="Shelves/Rack" required hint="Per rack">
-                    <TextInput
-                      icon={Layers}
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={formData.shelvesPerRack || '4'}
-                      onChange={setField('shelvesPerRack')}
-                      placeholder="4"
-                      required
-                    />
-                  </Field>
-
-                  <Field label="Sections/Shelf" required hint="Per shelf">
-                    <TextInput
-                      icon={Box}
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={formData.sectionsPerShelf || '6'}
-                      onChange={setField('sectionsPerShelf')}
-                      placeholder="6"
-                      required
-                    />
-                  </Field>
-
-                  <Field label="Subsections" required hint="Per section">
-                    <TextInput
-                      icon={Tag}
-                      type="number"
-                      min="1"
-                      max="10"
-                      value={formData.subsectionsPerSection || '2'}
-                      onChange={setField('subsectionsPerSection')}
-                      placeholder="2"
-                      required
-                    />
-                  </Field>
-                </div>
+                <Field label="Shelves / Section"  required hint="Example: 8">
+                  <TextInput icon={Layers}     type="number" min="1" max="50"  value={formData.shelvesPerSection}     onChange={setField('shelvesPerSection')}     required />
+                </Field>
+                <Field label="Subsections / Shelf" required hint="Example: 2">
+                  <TextInput icon={LayoutGrid} type="number" min="1" max="20"  value={formData.subsectionsPerSection} onChange={setField('subsectionsPerSection')} required />
+                </Field>
+                <Field label="Max Tires / Subsection" required hint="Maximum physical capacity">
+                  <TextInput icon={Package}    type="number" min="1" max="100" value={formData.tiresPerSubsection}    onChange={setField('tiresPerSubsection')}    required />
+                </Field>
               </div>
 
-              {/* Configuration Summary - Shows TOTALS */}
-              {formData.totalRacks && formData.shelvesPerRack && formData.sectionsPerShelf && formData.subsectionsPerSection && (
-                <div className="p-3 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="text-xs font-semibold text-blue-700">
-                      📊 Total Configuration Summary
-                    </div>
-                    {formData.rackSize && (
-                      <span className="text-[10px] font-medium text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                        Auto-filled for {formData.rackDesignation}
-                      </span>
-                    )}
+              <div className="rounded-xl border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-4">
+                <p className="mb-3 text-xs font-bold text-blue-700">Physical Rack Structure</p>
+                <div className="space-y-2">
+                  <div className="rounded-lg bg-white/70 p-2 text-xs text-slate-700">
+                    <span className="font-semibold">Warehouse:</span> {formData.warehouseCode || '—'}
                   </div>
-                  
-                  <div className="space-y-2">
-                    {/* Base Configuration */}
-                    <div className="grid grid-cols-2 gap-2 text-xs text-blue-900 pb-2 border-b border-blue-200">
-                      <div className="flex items-center gap-1">
-                        <Grid2x2 size={12} className="text-blue-600" />
-                        <span className="font-semibold">Racks:</span>
-                        <span className="font-bold text-blue-700">{formData.totalRacks}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Layers size={12} className="text-blue-600" />
-                        <span className="font-semibold">Shelves/Rack:</span>
-                        <span className="font-bold text-blue-700">{formData.shelvesPerRack}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Box size={12} className="text-blue-600" />
-                        <span className="font-semibold">Sections/Shelf:</span>
-                        <span className="font-bold text-blue-700">{formData.sectionsPerShelf}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Tag size={12} className="text-blue-600" />
-                        <span className="font-semibold">Subsections:</span>
-                        <span className="font-bold text-blue-700">{formData.subsectionsPerSection}</span>
-                      </div>
-                    </div>
-
-                    {/* Total Calculations */}
-                    <div className="grid grid-cols-3 gap-2 text-xs">
-                      <div className="bg-blue-100 rounded-lg p-2 text-center">
-                        <div className="text-[10px] font-medium text-blue-600 mb-1">Total Shelves</div>
-                        <div className="text-lg font-bold text-blue-800">
-                          {parseInt(formData.totalRacks || 0) * parseInt(formData.shelvesPerRack || 0)}
-                        </div>
-                      </div>
-                      <div className="bg-indigo-100 rounded-lg p-2 text-center">
-                        <div className="text-[10px] font-medium text-indigo-600 mb-1">Total Sections</div>
-                        <div className="text-lg font-bold text-indigo-800">
-                          {parseInt(formData.totalRacks || 0) * 
-                           parseInt(formData.shelvesPerRack || 0) * 
-                           parseInt(formData.sectionsPerShelf || 0)}
-                        </div>
-                      </div>
-                      <div className="bg-purple-100 rounded-lg p-2 text-center">
-                        <div className="text-[10px] font-medium text-purple-600 mb-1">Total Subsections</div>
-                        <div className="text-lg font-bold text-purple-800">
-                          {parseInt(formData.totalRacks || 0) * 
-                           parseInt(formData.shelvesPerRack || 0) * 
-                           parseInt(formData.sectionsPerShelf || 0) * 
-                           parseInt(formData.subsectionsPerSection || 0)}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Total Storage Positions */}
-                    <div className="bg-gradient-to-r from-emerald-100 to-green-100 rounded-lg p-2 text-center border-2 border-emerald-400">
-                      <div className="text-[10px] font-semibold text-emerald-700 mb-1">
-                        🎯 TOTAL STORAGE POSITIONS
-                      </div>
-                      <div className="text-2xl font-black text-emerald-800">
-                        {parseInt(formData.totalRacks || 0) *
-                          parseInt(formData.shelvesPerRack || 0) *
-                          parseInt(formData.sectionsPerShelf || 0) *
-                          parseInt(formData.subsectionsPerSection || 0)}
-                      </div>
-                      <div className="text-[9px] text-emerald-600 mt-1">
-                        Available tire positions across all racks
-                      </div>
-                    </div>
+                  <div className="rounded-lg bg-white/70 p-2 text-xs text-slate-700">
+                    <span className="font-semibold">Row:</span> {padNumber(formData.rowNumber)}
+                    {' → '}
+                    <span className="font-semibold">Rack:</span> {padNumber(formData.rackNumber)}
+                  </div>
+                  <div className="rounded-lg bg-white/70 p-2 text-xs text-slate-700">
+                    {formData.sectionsPerRack} Sections × {formData.shelvesPerSection} Shelves × {formData.subsectionsPerSection} Subsections
                   </div>
                 </div>
-              )}
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-indigo-100 p-3 text-center">
+                    <p className="text-[10px] font-semibold text-indigo-600">Storage Positions</p>
+                    <p className="text-2xl font-black text-indigo-800">{calcStoragePositions(formData).toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-100 p-3 text-center">
+                    <p className="text-[10px] font-semibold text-emerald-600">Maximum Rack Capacity</p>
+                    <p className="text-2xl font-black text-emerald-800">{calcRackCapacity(formData).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <hr className="border-slate-100" />
 
-            {/* Capacity */}
+            {/* ── Capacity ── */}
             <div className="space-y-3">
               <SectionHeader icon={Package} label="Capacity" />
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Max Capacity" required hint="Total units this location holds">
-                  <TextInput
-                    icon={Package}
-                    type="number"
-                    min="0"
-                    value={formData.capacity || '100'}
-                    onChange={setField('capacity')}
-                    placeholder="100"
-                    required
-                  />
+                <Field label="Max Capacity" hint="Automatically calculated">
+                  <TextInput icon={Package} readOnly value={calcRackCapacity(formData).toLocaleString()} className="cursor-not-allowed border-emerald-300 bg-emerald-50 font-bold text-emerald-800" />
                 </Field>
-                <Field label="Current Stock" required hint="Units currently stored">
-                  <TextInput
-                    icon={Box}
-                    type="number"
-                    min="0"
-                    value={formData.current_stock || '0'}
-                    onChange={setField('current_stock')}
-                    placeholder="0"
-                    required
-                  />
+                <Field label="Current Stock" required hint="Current tires stored">
+                  <TextInput icon={Box} type="number" min="0" max={calcRackCapacity(formData) || undefined} value={formData.current_stock} onChange={setField('current_stock')} required />
                 </Field>
               </div>
             </div>
 
             <hr className="border-slate-100" />
 
-            {/* Status */}
+            {/* ── Status ── */}
             <div className="space-y-3 pb-4">
               <SectionHeader icon={CheckCircle2} label="Status" />
-              <StatusPicker
-                value={formData.status || 'active'}
-                onChange={(val) => setFormData((f) => ({ ...f, status: val }))}
-              />
+              <StatusPicker value={formData.status || 'active'} onChange={(v) => setFormData(prev => ({ ...prev, status: v }))} />
             </div>
 
           </div>
 
-          {/* Fixed Action Buttons - ALWAYS VISIBLE */}
-          <div className="flex-shrink-0 border-t border-slate-200 pt-4 mt-4 bg-white">
+          {/* Fixed Buttons */}
+          <div className="mt-4 flex-shrink-0 border-t border-slate-200 bg-white pt-4">
             <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={closeModal}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
+              <button type="button" onClick={closeModal} className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50">
                 <X size={15} /> Cancel
               </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+              <button type="submit" disabled={submitting} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
                 {submitting
                   ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   : editingLocation ? <Edit size={15} /> : <Plus size={15} />
                 }
-                {submitting ? 'Saving...' : editingLocation ? 'Update Location' : 'Create Location'}
+                {submitting ? 'Saving...' : editingLocation ? 'Update Rack' : 'Create Rack'}
               </button>
             </div>
           </div>
-
         </form>
+      </Modal>
+
+      {/* ================================================================
+          STORAGE POSITIONS MODAL
+      ================================================================ */}
+      <Modal
+        isOpen={showPositionsModal}
+        onClose={closePositionsModal}
+        size="xl"
+        title={
+          <span className="flex items-center gap-2">
+            <LayoutGrid size={16} className="text-blue-500" />
+            Storage Positions
+          </span>
+        }
+      >
+        {selectedRack && (
+          <div className="space-y-5">
+            {/* Rack summary */}
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <div className="flex flex-col justify-between gap-3 md:flex-row">
+                <div>
+                  <p className="font-mono text-sm font-bold text-blue-800">{selectedRack.code}</p>
+                  <p className="mt-1 text-xs text-blue-600">
+                    Row {padNumber(selectedRack.metadata?.rowNumber ?? parseInt(selectedRack.aisle))}
+                    {' / '}
+                    Rack {padNumber(selectedRack.metadata?.rackNumber ?? parseInt(selectedRack.rack))}
+                  </p>
+                </div>
+                <div className="text-left md:text-right">
+                  <p className="text-xs text-slate-500">Rack Stock</p>
+                  <p className="text-xl font-bold text-slate-800">
+                    {Number(selectedRack.current_stock || 0).toLocaleString()} / {Number(selectedRack.capacity || 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Positions */}
+            {loadingPositions[selectedRack.id] ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw size={22} className="animate-spin text-blue-500" />
+                <span className="ml-2 text-sm text-slate-500">Loading storage positions...</span>
+              </div>
+            ) : (
+              <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+                {Object.entries(
+                  (rackPositions[selectedRack.id] || []).reduce((groups, pos) => {
+                    const key = `Section ${pos.section_number}`;
+                    if (!groups[key]) groups[key] = [];
+                    groups[key].push(pos);
+                    return groups;
+                  }, {})
+                ).map(([sectionName, positions]) => (
+                  <div key={sectionName} className="overflow-hidden rounded-xl border border-slate-200">
+                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <Box size={15} className="text-blue-500" />
+                        <p className="text-sm font-bold text-slate-800">{sectionName}</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {positions
+                        .sort((a, b) => a.shelf_number !== b.shelf_number ? a.shelf_number - b.shelf_number : a.subsection_number - b.subsection_number)
+                        .map(position => {
+                          const quantity    = Number(position.current_stock || position.quantity || 0);
+                          const capacity    = Number(position.capacity || 0);
+                          const utilization = getPositionUtilization(position);
+                          const tireSize    = position.tire_size || position.tireSize;
+
+                          return (
+                            <button
+                              type="button"
+                              key={position.id}
+                              onClick={() => selectPosition(position)}
+                              className="group rounded-xl border border-slate-200 bg-white p-3 text-left transition-all hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-sm"
+                            >
+                              {/* Position code */}
+                              <div className="mb-3 flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="font-mono text-[10px] font-bold text-blue-700">
+                                    {position.position_code || position.positionCode}
+                                  </p>
+                                  <p className="mt-0.5 text-[10px] text-slate-400">
+                                    Shelf {padNumber(position.shelf_number)} · Subsection {padNumber(position.subsection_number)}
+                                  </p>
+                                </div>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                  quantity === 0 ? 'bg-slate-100 text-slate-500'
+                                  : utilization >= 90 ? 'bg-red-100 text-red-600'
+                                  : utilization >= 70 ? 'bg-amber-100 text-amber-600'
+                                  : 'bg-green-100 text-green-600'
+                                }`}>
+                                  {quantity === 0 ? 'Empty' : `${utilization}%`}
+                                </span>
+                              </div>
+
+                              {/* Tire size */}
+                              <div className="mb-3 min-h-[42px]">
+                                {tireSize ? (
+                                  <>
+                                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Tire Size</p>
+                                    <p className="text-sm font-bold text-slate-800">{tireSize}</p>
+                                  </>
+                                ) : (
+                                  <div className="flex h-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+                                    <Tag size={14} className="text-slate-400" />
+                                    <span className="text-xs text-slate-400">No tire assigned</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Quantity bar */}
+                              <div>
+                                <div className="mb-1 flex items-center justify-between">
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Quantity</span>
+                                  <span className="text-xs font-bold text-slate-700">{quantity} / {capacity}</span>
+                                </div>
+                                <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                  <div
+                                    className={`h-full rounded-full transition-all ${utilization >= 90 ? 'bg-red-500' : utilization >= 70 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                    style={{ width: `${utilization}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="mt-3 flex items-center justify-end gap-1 text-[10px] font-semibold text-blue-600 opacity-0 transition-opacity group-hover:opacity-100">
+                                <Edit size={11} /> Assign / Edit
+                              </div>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end border-t border-slate-200 pt-4">
+              <button type="button" onClick={closePositionsModal} className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ================================================================
+          TIRE ASSIGNMENT MODAL
+      ================================================================ */}
+      <Modal
+        isOpen={!!selectedPosition}
+        onClose={() => setSelectedPosition(null)}
+        size="md"
+        title={
+          <span className="flex items-center gap-2">
+            <Tag size={16} className="text-blue-500" />
+            Assign Tire to Position
+          </span>
+        }
+      >
+        {selectedPosition && (
+          <div className="space-y-5">
+            {/* Position info */}
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-blue-600">Storage Position</p>
+              <p className="mt-1 font-mono text-sm font-bold text-blue-800">
+                {selectedPosition.position_code || selectedPosition.positionCode}
+              </p>
+              <p className="mt-1 text-xs text-blue-600">
+                Section {padNumber(selectedPosition.section_number)}
+                {' · '}
+                Shelf {padNumber(selectedPosition.shelf_number)}
+                {' · '}
+                Subsection {padNumber(selectedPosition.subsection_number)}
+              </p>
+            </div>
+
+            {/* Tire size */}
+            <Field label="Tire Size" required={Number(quantityInput) > 0} hint="Example: Dual Sport 90/90-17">
+              <TextInput
+                icon={Tag}
+                value={tireSizeInput}
+                onChange={(e) => setTireSizeInput(e.target.value)}
+                placeholder="Dual Sport 90/90-17"
+              />
+            </Field>
+
+            {/* Quantity */}
+            <Field label="Quantity" required hint={`Maximum capacity: ${selectedPosition.capacity || 0} tires`}>
+              <TextInput
+                icon={Package}
+                type="number"
+                min="0"
+                max={selectedPosition.capacity || undefined}
+                value={quantityInput}
+                onChange={(e) => setQuantityInput(e.target.value)}
+              />
+            </Field>
+
+            {/* Capacity bar */}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500">Position Capacity</span>
+                <span className="text-sm font-bold text-slate-800">
+                  {quantityInput || 0} / {selectedPosition.capacity || 0}
+                </span>
+              </div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all"
+                  style={{ width: `${Math.min(100, (Number(quantityInput) / Number(selectedPosition.capacity || 1)) * 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 border-t border-slate-200 pt-4">
+              <button type="button" onClick={() => setSelectedPosition(null)} className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button type="button" onClick={savePosition} disabled={positionSaving} className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">
+                {positionSaving
+                  ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  : <Save size={15} />
+                }
+                {positionSaving ? 'Saving...' : 'Save Position'}
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
     </motion.div>

@@ -6,7 +6,7 @@
  * ============================================================================
  */
 
-import supabaseAdmin from '../config/supabaseAdmin.js';
+import { supabaseAdmin } from '../config/supabase.js';
 
 /**
  * Get all shipments with filters
