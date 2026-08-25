@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Package, Search, Calendar, Truck, CheckCircle2, XCircle, 
   Clock, Edit, Trash2, X, Ship, Box, FileText, User, AlertTriangle,
-  MapPin, Tag, ChevronRight, TrendingUp, Layers
+  MapPin, Tag, ChevronRight, TrendingUp, Layers, Warehouse, Navigation
 } from 'lucide-react';
-import { fetchShipments, createShipment, updateShipment, deleteShipment, fetchSuppliers } from '../../../services/api';
+import { fetchShipments, createShipment, updateShipment, deleteShipment, fetchSuppliers, fetchWarehouseLocations } from '../../../services/api';
 
 export default function ShipmentRegistration() {
   const [shipments, setShipments] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  const [warehouseLocations, setWarehouseLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [alert, setAlert] = useState(null);
@@ -19,6 +20,11 @@ export default function ShipmentRegistration() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  // Location picker state
+  const [locationSearch, setLocationSearch] = useState('');
+  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
+  const [selectedLocationObj, setSelectedLocationObj] = useState(null);
+
   const [formData, setFormData] = useState({
     supplier_id: '',
     shipment_number: '',
@@ -27,7 +33,8 @@ export default function ShipmentRegistration() {
     expected_quantity: '',
     expected_arrival_date: '',
     notes: '',
-    product_breakdown: [] // NEW: Array of {category, size, quantity}
+    product_breakdown: [],
+    assigned_location_id: ''
   });
 
   useEffect(() => {
@@ -69,12 +76,14 @@ export default function ShipmentRegistration() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [shipmentsData, suppliersData] = await Promise.all([
+      const [shipmentsData, suppliersData, locationsData] = await Promise.all([
         fetchShipments({ status: statusFilter === 'all' ? null : statusFilter }),
-        fetchSuppliers()
+        fetchSuppliers(),
+        fetchWarehouseLocations()
       ]);
       setShipments(shipmentsData.shipments || []);
       setSuppliers(suppliersData.suppliers || []);
+      setWarehouseLocations(locationsData.locations || []);
       setError(null);
     } catch (err) {
       console.error('Error loading data:', err);
@@ -153,8 +162,20 @@ export default function ShipmentRegistration() {
       expected_quantity: shipment.expected_quantity || '',
       expected_arrival_date: shipment.expected_arrival_date || '',
       notes: shipment.notes || '',
-      product_breakdown: Array.isArray(shipment.product_breakdown) ? JSON.parse(JSON.stringify(shipment.product_breakdown)) : [] // Deep clone!
+      product_breakdown: Array.isArray(shipment.product_breakdown) ? JSON.parse(JSON.stringify(shipment.product_breakdown)) : [],
+      assigned_location_id: shipment.assigned_location_id || ''
     };
+
+    // Restore selected location object for the picker
+    if (shipment.assigned_location_id) {
+      const loc = warehouseLocations.find(l => l.id === shipment.assigned_location_id)
+               || shipment.assigned_location
+               || null;
+      setSelectedLocationObj(loc);
+    } else {
+      setSelectedLocationObj(null);
+    }
+    setLocationSearch('');
     
     console.log('📤 Setting formData to:', formDataToSet);
     console.log('📤 formData.product_breakdown:', formDataToSet.product_breakdown);
@@ -192,10 +213,14 @@ export default function ShipmentRegistration() {
       expected_quantity: '',
       expected_arrival_date: '',
       notes: '',
-      product_breakdown: []
+      product_breakdown: [],
+      assigned_location_id: ''
     });
     setEditingShipment(null);
     setShowForm(false);
+    setLocationSearch('');
+    setShowLocationDropdown(false);
+    setSelectedLocationObj(null);
   };
 
   // Product breakdown helpers
@@ -738,6 +763,136 @@ export default function ShipmentRegistration() {
                     />
                   </div>
 
+                  {/* ─── Assigned Warehouse Location ─────────────────────────── */}
+                  <div>
+                    <div className="flex items-center space-x-2 mb-4">
+                      <div className="p-2 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-lg">
+                        <Navigation className="h-4 w-4 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-slate-800">Assigned Warehouse Location</h3>
+                        <p className="text-xs text-slate-500">Tells receiving staff exactly where to place this shipment. Quantity will be confirmed on arrival.</p>
+                      </div>
+                    </div>
+
+                    {selectedLocationObj ? (
+
+                      /* Selected location card */
+                      <div className="flex items-center gap-4 rounded-xl border-2 border-teal-300 bg-gradient-to-r from-teal-50 to-emerald-50 p-4">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-100">
+                          <Warehouse className="h-5 w-5 text-teal-700" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-mono text-sm font-bold text-teal-800">{selectedLocationObj.code}</p>
+                          <p className="text-xs text-teal-600">
+                            Zone {selectedLocationObj.zone || '—'}
+                            {selectedLocationObj.aisle ? ` · Row ${String(selectedLocationObj.aisle).padStart(2,'0')}` : ''}
+                            {selectedLocationObj.rack  ? ` · Rack ${String(selectedLocationObj.rack).padStart(2,'0')}` : ''}
+                          </p>
+                          {selectedLocationObj.capacity > 0 && (
+                            <p className="mt-1 text-xs text-slate-500">
+                              Capacity: {Number(selectedLocationObj.current_stock||0).toLocaleString()} / {Number(selectedLocationObj.capacity).toLocaleString()} tires
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedLocationObj(null);
+                            setFormData(prev => ({ ...prev, assigned_location_id: '' }));
+                            setLocationSearch('');
+                          }}
+                          className="shrink-0 rounded-lg p-1.5 text-teal-400 hover:bg-teal-200 hover:text-teal-700 transition-colors"
+                          title="Remove location"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                    ) : (
+
+                      /* Searchable picker */
+                      <div className="relative">
+                        <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+                          <Search className="h-4 w-4 text-slate-400" />
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Search rack code or zone… (e.g. WH1-LOC or Zone A)"
+                          value={locationSearch}
+                          onChange={e => { setLocationSearch(e.target.value); setShowLocationDropdown(true); }}
+                          onFocus={() => setShowLocationDropdown(true)}
+                          className="w-full rounded-xl border-2 border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+                        />
+                        {formData.assigned_location_id === '' && (
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>
+                        )}
+
+                        {showLocationDropdown && (
+                          <div className="absolute z-50 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl">
+                            {warehouseLocations
+                              .filter(loc => {
+                                const q = locationSearch.toLowerCase();
+                                return !q
+                                  || loc.code?.toLowerCase().includes(q)
+                                  || String(loc.zone || '').toLowerCase().includes(q)
+                                  || String(loc.aisle || '').includes(q)
+                                  || String(loc.rack || '').includes(q);
+                              })
+                              .slice(0, 20)
+                              .map(loc => {
+                                const pct = loc.capacity > 0
+                                  ? Math.round((loc.current_stock / loc.capacity) * 100)
+                                  : 0;
+                                const free = (loc.capacity || 0) - (loc.current_stock || 0);
+                                return (
+                                  <button
+                                    key={loc.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedLocationObj(loc);
+                                      setFormData(prev => ({ ...prev, assigned_location_id: loc.id }));
+                                      setLocationSearch('');
+                                      setShowLocationDropdown(false);
+                                    }}
+                                    className="flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left text-sm last:border-0 hover:bg-teal-50"
+                                  >
+                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100">
+                                      <Warehouse className="h-4 w-4 text-teal-600" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-mono text-xs font-bold text-teal-800">{loc.code}</p>
+                                      <p className="text-[11px] text-slate-500">
+                                        Zone {loc.zone || '—'} · Row {String(loc.aisle||0).padStart(2,'0')} · Rack {String(loc.rack||0).padStart(2,'0')}
+                                      </p>
+                                    </div>
+                                    <div className="shrink-0 text-right">
+                                      <p className={`text-xs font-bold ${ pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-emerald-600' }`}>
+                                        {free.toLocaleString()} free
+                                      </p>
+                                      <div className="mt-1 h-1 w-14 overflow-hidden rounded-full bg-slate-200">
+                                        <div
+                                          className={`h-full rounded-full ${ pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500' }`}
+                                          style={{ width: `${pct}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            {warehouseLocations.filter(loc => {
+                              const q = locationSearch.toLowerCase();
+                              return !q || loc.code?.toLowerCase().includes(q) || String(loc.zone||'').toLowerCase().includes(q);
+                            }).length === 0 && (
+                              <div className="px-4 py-6 text-center text-sm text-slate-400">No locations found</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                    )}
+                  </div>
+
                   {/* Modal Footer */}
                   <div className="flex justify-end space-x-3 pt-6 border-t border-slate-200">
                     <motion.button
@@ -893,6 +1048,23 @@ export default function ShipmentRegistration() {
                           <span className="text-sm font-medium text-blue-700">
                             {new Date(shipment.expected_arrival_date).toLocaleDateString()}
                           </span>
+                        </div>
+                      )}
+
+                      {/* Assigned Location */}
+                      {shipment.assigned_location && (
+                        <div className="flex items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2">
+                          <Navigation className="h-4 w-4 shrink-0 text-teal-600" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-teal-500">Assigned Location</p>
+                            <p className="font-mono text-xs font-bold text-teal-800 truncate">{shipment.assigned_location.code}</p>
+                            <p className="text-[10px] text-teal-500">
+                              Zone {shipment.assigned_location.zone || '—'}
+                              {shipment.assigned_location.aisle ? ` · Row ${String(shipment.assigned_location.aisle).padStart(2,'0')}` : ''}
+                              {shipment.assigned_location.rack  ? ` · Rack ${String(shipment.assigned_location.rack).padStart(2,'0')}` : ''}
+                            </p>
+                          </div>
+                          <Warehouse className="h-4 w-4 shrink-0 text-teal-500" />
                         </div>
                       )}
 

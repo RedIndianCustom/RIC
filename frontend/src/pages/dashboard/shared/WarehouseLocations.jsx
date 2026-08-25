@@ -27,6 +27,8 @@ import {
   Eye,
   Save,
   RefreshCw,
+  Car,
+  Zap,
 } from 'lucide-react';
 
 import Modal from '../../../components/common/Modal';
@@ -412,24 +414,68 @@ function buildEmptyPositions(location) {
    TIRE SIZE BADGE
 ============================================================================ */
 
-function TireSizeBadge({ tireSize, quantity }) {
+// Distinct palette for up to 6 different tire sizes in one rack
+const TIRE_BADGE_PALETTE = [
+  {
+    badge: 'border-blue-200 bg-blue-50 text-blue-700',
+    pill:  'bg-blue-500 text-white',
+    icon:  'text-blue-400',
+  },
+  {
+    badge: 'border-violet-200 bg-violet-50 text-violet-700',
+    pill:  'bg-violet-500 text-white',
+    icon:  'text-violet-400',
+  },
+  {
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    pill:  'bg-emerald-500 text-white',
+    icon:  'text-emerald-400',
+  },
+  {
+    badge: 'border-amber-200 bg-amber-50 text-amber-700',
+    pill:  'bg-amber-500 text-white',
+    icon:  'text-amber-400',
+  },
+  {
+    badge: 'border-rose-200 bg-rose-50 text-rose-700',
+    pill:  'bg-rose-500 text-white',
+    icon:  'text-rose-400',
+  },
+  {
+    badge: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+    pill:  'bg-cyan-500 text-white',
+    icon:  'text-cyan-400',
+  },
+];
+
+function TireSizeBadge({ tireSize, quantity, colorIndex = 0 }) {
   if (!tireSize) {
     return (
-      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
+      <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-400">
         Empty
       </span>
     );
   }
 
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-700">
-      <Tag size={11} />
+  const palette = TIRE_BADGE_PALETTE[colorIndex % TIRE_BADGE_PALETTE.length];
 
-      {tireSize}
+  return (
+    <span
+      title={`${tireSize} × ${quantity}`}
+      className={`inline-flex max-w-[140px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition-shadow hover:shadow-md ${palette.badge}`}
+    >
+      {/* Colored left dot instead of icon — saves horizontal space */}
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${palette.pill}`} />
+
+      <span className="truncate">
+        {tireSize}
+      </span>
 
       {quantity !== undefined && (
-        <span className="font-bold">
-          × {quantity}
+        <span
+          className={`inline-flex min-w-[18px] shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${palette.pill}`}
+        >
+          {quantity}
         </span>
       )}
     </span>
@@ -506,6 +552,65 @@ export default function WarehouseLocations() {
 
   const [quantityInput, setQuantityInput] =
     useState('0');
+
+  // Bulk assignment state
+  const [bulkMode, setBulkMode] =
+    useState(false);
+
+  const [selectedPositionIds, setSelectedPositionIds] =
+    useState(new Set());
+
+  const [bulkTireSize, setBulkTireSize] =
+    useState('');
+
+  const [bulkQuantity, setBulkQuantity] =
+    useState('');
+
+  const [bulkProduct, setBulkProduct] =
+    useState(null);
+
+  const [bulkProductSearch, setBulkProductSearch] =
+    useState('');
+
+  const [showBulkProductDropdown, setShowBulkProductDropdown] =
+    useState(false);
+
+  const [bulkSaving, setBulkSaving] =
+    useState(false);
+
+  // Product catalogue for the tire picker
+  const [products, setProducts] =
+    useState([]);
+
+  const [productSearch, setProductSearch] =
+    useState('');
+
+  const [selectedProduct, setSelectedProduct] =
+    useState(null);
+
+  const [loadingProducts, setLoadingProducts] =
+    useState(false);
+
+  const [showProductDropdown, setShowProductDropdown] =
+    useState(false);
+
+
+  /* ==========================================================================
+     LOAD PRODUCTS (for tire picker)
+  ========================================================================== */
+
+  const loadProducts = async () => {
+    if (products.length > 0) return;           // already loaded
+    setLoadingProducts(true);
+    try {
+      const { data } = await api.get('/products');
+      setProducts(data.products || []);
+    } catch (err) {
+      console.warn('Could not load products:', err);
+    } finally {
+      setLoadingProducts(false);
+    }
+  };
 
 
   /* ==========================================================================
@@ -599,6 +704,19 @@ export default function WarehouseLocations() {
 
       setOpenFolders(allOpen);
 
+      /*
+       * Auto-load positions for every rack in
+       * the background so the Tire Sizes column
+       * is populated on the first render without
+       * requiring the user to open the eye modal.
+       *
+       * Racks that already have stock are
+       * prioritised (loaded first).
+       */
+      preloadAllPositions(fetched);
+
+      return fetched;
+
     } catch (err) {
       setLocations([]);
 
@@ -622,6 +740,7 @@ export default function WarehouseLocations() {
       setLoading(false);
     }
   };
+
 
 
   /* ==========================================================================
@@ -723,6 +842,25 @@ export default function WarehouseLocations() {
         [location.id]: false,
       }));
     }
+  };
+
+
+  /* ==========================================================================
+     PRELOAD ALL RACK POSITIONS (background, called from loadLocations)
+  ========================================================================== */
+
+  const preloadAllPositions = (locs = []) => {
+    if (!locs.length) return;
+
+    // Racks with stock > 0 first so visible badges appear immediately.
+    const sorted = [...locs].sort((a, b) =>
+      Number(b.current_stock || 0) - Number(a.current_stock || 0)
+    );
+
+    // Stagger requests by 120 ms each to avoid hammering the server.
+    sorted.forEach((loc, i) => {
+      setTimeout(() => loadRackPositions(loc), i * 120);
+    });
   };
 
 
@@ -1125,6 +1263,14 @@ export default function WarehouseLocations() {
         0
       )
     );
+
+    // Reset product picker state
+    setSelectedProduct(null);
+    setProductSearch('');
+    setShowProductDropdown(false);
+
+    // Pre-load products for the picker
+    loadProducts();
   };
 
 
@@ -1143,6 +1289,19 @@ export default function WarehouseLocations() {
     setTireSizeInput('');
 
     setQuantityInput('0');
+
+    setSelectedProduct(null);
+    setProductSearch('');
+    setShowProductDropdown(false);
+
+    // Reset bulk state
+    setBulkMode(false);
+    setSelectedPositionIds(new Set());
+    setBulkTireSize('');
+    setBulkQuantity('');
+    setBulkProduct(null);
+    setBulkProductSearch('');
+    setShowBulkProductDropdown(false);
   };
 
 
@@ -1274,6 +1433,90 @@ export default function WarehouseLocations() {
     } finally {
 
       setPositionSaving(false);
+    }
+  };
+
+
+  /* ==========================================================================
+     SAVE BULK TIRE ASSIGNMENT
+  ========================================================================== */
+
+  const saveBulkPositions = async () => {
+
+    if (!selectedRack || selectedPositionIds.size === 0) return;
+
+    const tireSizeValue = bulkTireSize.trim();
+    const quantityValue = parseInt(bulkQuantity) || 0;
+
+    if (quantityValue > 0 && !tireSizeValue) {
+      showToast('Tire size is required when quantity > 0', 'error');
+      return;
+    }
+
+    setBulkSaving(true);
+
+    try {
+
+      const positions =
+        rackPositions[selectedRack.id] || [];
+
+      const targets = positions.filter(p =>
+        selectedPositionIds.has(p.id)
+      );
+
+      // Check quantity doesn't exceed any position's capacity
+      const overCapacity = targets.find(
+        p => quantityValue > Number(p.capacity || 0)
+      );
+
+      if (overCapacity) {
+        showToast(
+          `Quantity exceeds capacity (${overCapacity.capacity}) of position ${overCapacity.position_code}`,
+          'error'
+        );
+        return;
+      }
+
+      // Fire all saves in parallel
+      await Promise.all(
+        targets.map(p =>
+          api.put(
+            `/warehouse-locations/${selectedRack.id}/positions/${p.id}`,
+            {
+              tire_size: quantityValue > 0 ? tireSizeValue : null,
+              quantity: quantityValue,
+            }
+          )
+        )
+      );
+
+      showToast(
+        `Updated ${targets.length} position${targets.length !== 1 ? 's' : ''} successfully`,
+        'success'
+      );
+
+      // Refresh data
+      await loadRackPositions(selectedRack, true);
+      const refreshed = await loadLocations();
+      const updatedRack = refreshed?.find(l => l.id === selectedRack.id);
+      if (updatedRack) setSelectedRack(updatedRack);
+
+      // Reset bulk panel
+      setSelectedPositionIds(new Set());
+      setBulkTireSize('');
+      setBulkQuantity('');
+      setBulkProduct(null);
+      setBulkProductSearch('');
+
+    } catch (error) {
+
+      showToast(
+        error.response?.data?.error || error.message || 'Bulk update failed',
+        'error'
+      );
+
+    } finally {
+      setBulkSaving(false);
     }
   };
 
@@ -2204,72 +2447,50 @@ export default function WarehouseLocations() {
                                           TIRE SIZES
                                       ================================================= */}
 
-                                      <td className="max-w-xs px-5 py-4">
+                                      <td className="px-5 py-4">
 
                                         {tireSummary.length === 0 ? (
 
-                                          <div className="flex flex-col gap-1">
-
-                                            <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
-                                              No tire assigned
-                                            </span>
-
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                openPositions(
-                                                  location
-                                                )
-                                              }
-                                              className="w-fit text-[10px] font-semibold text-blue-600 hover:text-blue-800"
-                                            >
-                                              Assign tire
-                                            </button>
-
-                                          </div>
+                                          /* ---- empty state: single inline button ---- */
+                                          <button
+                                            type="button"
+                                            onClick={() => openPositions(location)}
+                                            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-400 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                                          >
+                                            <Plus size={10} />
+                                            Assign tire
+                                          </button>
 
                                         ) : (
 
-                                          <div className="flex max-w-xs flex-wrap gap-1.5">
+                                          /* ---- filled state ---- */
+                                          <div className="flex flex-wrap items-center gap-1">
 
-                                            {tireSummary
-                                              .slice(
-                                                0,
-                                                4
-                                              )
-                                              .map(
-                                                ([
-                                                  size,
-                                                  quantity,
-                                                ]) => (
+                                            {/* show 2 badges max */}
+                                            {tireSummary.slice(0, 2).map(([size, qty], idx) => (
+                                              <TireSizeBadge
+                                                key={size}
+                                                tireSize={size}
+                                                quantity={qty}
+                                                colorIndex={idx}
+                                              />
+                                            ))}
 
-                                                  <TireSizeBadge
-                                                    key={size}
-                                                    tireSize={
-                                                      size
-                                                    }
-                                                    quantity={
-                                                      quantity
-                                                    }
-                                                  />
-
-                                                )
+                                            {/* single pill: overflow count + add more */}
+                                            <button
+                                              type="button"
+                                              onClick={() => openPositions(location)}
+                                              title="View all tire sizes or add more"
+                                              className="inline-flex items-center gap-1 rounded-full border border-dashed border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-600 transition-all hover:border-blue-400 hover:bg-blue-100 hover:text-blue-800"
+                                            >
+                                              {tireSummary.length > 2 && (
+                                                <span className="mr-0.5 text-blue-500">
+                                                  +{tireSummary.length - 2}
+                                                </span>
                                               )}
-
-                                            {tireSummary.length >
-                                              4 && (
-
-                                              <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">
-
-                                                +
-                                                {tireSummary.length -
-                                                  4}
-                                                {' '}
-                                                more
-
-                                              </span>
-
-                                            )}
+                                              <Plus size={9} />
+                                              {tireSummary.length > 2 ? 'more' : 'Add more'}
+                                            </button>
 
                                           </div>
 
@@ -3171,7 +3392,7 @@ export default function WarehouseLocations() {
 
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
 
-              <div className="flex flex-col justify-between gap-3 md:flex-row">
+              <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
 
                 <div>
 
@@ -3184,53 +3405,65 @@ export default function WarehouseLocations() {
                     {
                       padNumber(
                         selectedRack.metadata?.rowNumber ??
-                        parseInt(
-                          selectedRack.aisle
-                        )
+                        parseInt(selectedRack.aisle)
                       )
                     }
-
                     {' / '}
-
                     Rack{' '}
                     {
                       padNumber(
                         selectedRack.metadata?.rackNumber ??
-                        parseInt(
-                          selectedRack.rack
-                        )
+                        parseInt(selectedRack.rack)
                       )
                     }
                   </p>
 
                 </div>
 
+                <div className="flex items-center gap-3">
 
-                <div className="text-left md:text-right">
+                  {/* Bulk mode toggle */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkMode(prev => !prev);
+                      setSelectedPositionIds(new Set());
+                      setBulkTireSize('');
+                      setBulkQuantity('');
+                      setBulkProduct(null);
+                    }}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition-all ${
+                      bulkMode
+                        ? 'border-violet-300 bg-violet-600 text-white shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-violet-300 hover:text-violet-700'
+                    }`}
+                  >
+                    <LayoutGrid size={13} />
+                    {bulkMode ? 'Exit Bulk Mode' : 'Bulk Assign'}
+                  </button>
 
-                  <p className="text-xs text-slate-500">
-                    Rack Stock
-                  </p>
-
-                  <p className="text-xl font-bold text-slate-800">
-
-                    {Number(
-                      selectedRack.current_stock ||
-                        0
-                    ).toLocaleString()}
-
-                    {' / '}
-
-                    {Number(
-                      selectedRack.capacity ||
-                        0
-                    ).toLocaleString()}
-
-                  </p>
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">Rack Stock</p>
+                    <p className="text-xl font-bold text-slate-800">
+                      {Number(selectedRack.current_stock || 0).toLocaleString()}
+                      {' / '}
+                      {Number(selectedRack.capacity || 0).toLocaleString()}
+                    </p>
+                  </div>
 
                 </div>
 
               </div>
+
+              {/* Bulk mode hint */}
+              {bulkMode && (
+                <div className="mt-3 flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700">
+                  <Layers size={13} />
+                  <span>
+                    <strong>Bulk mode ON</strong> — check positions below, then set tire size &amp; quantity in the panel that appears.
+                  </span>
+                </div>
+              )}
 
             </div>
 
@@ -3303,16 +3536,43 @@ export default function WarehouseLocations() {
 
                       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center justify-between gap-2">
 
-                          <Box
-                            size={15}
-                            className="text-blue-500"
-                          />
+                          <div className="flex items-center gap-2">
+                            <Box size={15} className="text-blue-500" />
+                            <p className="text-sm font-bold text-slate-800">
+                              {sectionName}
+                            </p>
+                          </div>
 
-                          <p className="text-sm font-bold text-slate-800">
-                            {sectionName}
-                          </p>
+                          {/* Select-all toggle for this section */}
+                          {bulkMode && (() => {
+                            const sectionIds = positions.map(p => p.id);
+                            const allSelected = sectionIds.every(id => selectedPositionIds.has(id));
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedPositionIds(prev => {
+                                    const next = new Set(prev);
+                                    if (allSelected) {
+                                      sectionIds.forEach(id => next.delete(id));
+                                    } else {
+                                      sectionIds.forEach(id => next.add(id));
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className={`rounded-lg border px-2.5 py-1 text-[11px] font-bold transition-all ${
+                                  allSelected
+                                    ? 'border-violet-300 bg-violet-100 text-violet-700'
+                                    : 'border-slate-200 bg-white text-slate-500 hover:border-violet-300 hover:text-violet-600'
+                                }`}
+                              >
+                                {allSelected ? '✓ All selected' : 'Select all'}
+                              </button>
+                            );
+                          })()}
 
                         </div>
 
@@ -3373,18 +3633,46 @@ export default function WarehouseLocations() {
 
                               return (
 
-                                <button
-                                  type="button"
-                                  key={
-                                    position.id
-                                  }
-                                  onClick={() =>
-                                    selectPosition(
-                                      position
-                                    )
-                                  }
-                                  className="group rounded-xl border border-slate-200 bg-white p-3 text-left transition-all hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-sm"
+                                <div
+                                  key={position.id}
+                                  className={`relative rounded-xl border bg-white p-3 text-left transition-all ${
+                                    bulkMode
+                                      ? selectedPositionIds.has(position.id)
+                                        ? 'border-violet-400 bg-violet-50 shadow-md ring-2 ring-violet-300'
+                                        : 'cursor-pointer border-slate-200 hover:border-violet-300 hover:bg-violet-50/40'
+                                      : 'cursor-pointer border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-sm'
+                                  }`}
+                                  onClick={() => {
+                                    if (bulkMode) {
+                                      setSelectedPositionIds(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(position.id)) {
+                                          next.delete(position.id);
+                                        } else {
+                                          next.add(position.id);
+                                        }
+                                        return next;
+                                      });
+                                    } else {
+                                      selectPosition(position);
+                                    }
+                                  }}
                                 >
+
+                                  {/* Bulk checkbox overlay */}
+                                  {bulkMode && (
+                                    <div className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-all ${
+                                      selectedPositionIds.has(position.id)
+                                        ? 'border-violet-500 bg-violet-500 text-white'
+                                        : 'border-slate-300 bg-white'
+                                    }`}>
+                                      {selectedPositionIds.has(position.id) && (
+                                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                          <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                      )}
+                                    </div>
+                                  )}
 
                                   {/* =================================
                                       POSITION CODE
@@ -3395,55 +3683,29 @@ export default function WarehouseLocations() {
                                     <div>
 
                                       <p className="font-mono text-[10px] font-bold text-blue-700">
-
-                                        {position.position_code ||
-                                          position.positionCode}
-
+                                        {position.position_code || position.positionCode}
                                       </p>
 
                                       <p className="mt-0.5 text-[10px] text-slate-400">
-
-                                        Shelf{' '}
-                                        {
-                                          padNumber(
-                                            position.shelf_number
-                                          )
-                                        }
-
+                                        Shelf{' '}{padNumber(position.shelf_number)}
                                         {' · '}
-
-                                        Subsection{' '}
-                                        {
-                                          padNumber(
-                                            position.subsection_number
-                                          )
-                                        }
-
+                                        Subsection{' '}{padNumber(position.subsection_number)}
                                       </p>
 
                                     </div>
 
-
                                     <span
                                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                        quantity ===
-                                        0
+                                        quantity === 0
                                           ? 'bg-slate-100 text-slate-500'
-                                          : utilization >=
-                                            90
+                                          : utilization >= 90
                                           ? 'bg-red-100 text-red-600'
-                                          : utilization >=
-                                            70
+                                          : utilization >= 70
                                           ? 'bg-amber-100 text-amber-600'
                                           : 'bg-green-100 text-green-600'
                                       }`}
                                     >
-
-                                      {quantity ===
-                                      0
-                                        ? 'Empty'
-                                        : `${utilization}%`}
-
+                                      {quantity === 0 ? 'Empty' : `${utilization}%`}
                                     </span>
 
                                   </div>
@@ -3456,99 +3718,60 @@ export default function WarehouseLocations() {
                                   <div className="mb-3 min-h-[42px]">
 
                                     {tireSize ? (
-
                                       <>
-
                                         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                                           Tire Size
                                         </p>
-
-                                        <p className="text-sm font-bold text-slate-800">
-                                          {tireSize}
-                                        </p>
-
+                                        <p className="text-sm font-bold text-slate-800">{tireSize}</p>
                                       </>
-
                                     ) : (
-
                                       <div className="flex h-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
-
-                                        <Tag
-                                          size={14}
-                                          className="text-slate-400"
-                                        />
-
-                                        <span className="text-xs text-slate-400">
-                                          No tire assigned
-                                        </span>
-
+                                        <Tag size={14} className="text-slate-400" />
+                                        <span className="text-xs text-slate-400">No tire assigned</span>
                                       </div>
-
                                     )}
 
                                   </div>
 
 
                                   {/* =================================
-                                      QUANTITY
+                                      QUANTITY BAR
                                   ================================= */}
 
                                   <div>
-
                                     <div className="mb-1 flex items-center justify-between">
-
                                       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                                         Quantity
                                       </span>
-
                                       <span className="text-xs font-bold text-slate-700">
-
-                                        {quantity}
-                                        {' / '}
-                                        {capacity}
-
+                                        {quantity} / {capacity}
                                       </span>
-
                                     </div>
-
-
                                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
-
                                       <div
                                         className={`h-full rounded-full transition-all ${
-                                          utilization >=
-                                          90
-                                            ? 'bg-red-500'
-                                            : utilization >=
-                                              70
-                                            ? 'bg-amber-500'
-                                            : 'bg-blue-500'
+                                          utilization >= 90 ? 'bg-red-500'
+                                          : utilization >= 70 ? 'bg-amber-500'
+                                          : 'bg-blue-500'
                                         }`}
-                                        style={{
-                                          width: `${utilization}%`,
-                                        }}
+                                        style={{ width: `${utilization}%` }}
                                       />
-
                                     </div>
-
                                   </div>
 
 
                                   {/* =================================
-                                      ACTION
+                                      HOVER ACTION HINT
                                   ================================= */}
 
-                                  <div className="mt-3 flex items-center justify-end gap-1 text-[10px] font-semibold text-blue-600 opacity-0 transition-opacity group-hover:opacity-100">
+                                  {!bulkMode && (
+                                    <div className="group mt-3 flex items-center justify-end gap-1 text-[10px] font-semibold text-blue-600 opacity-0 transition-opacity group-hover:opacity-100">
+                                      <Edit size={11} />
+                                      Assign / Edit
+                                    </div>
+                                  )}
 
-                                    <Edit
-                                      size={11}
-                                    />
-
-                                    Assign / Edit
-
-                                  </div>
-
-                                </button>
+                                </div>
 
                               );
 
@@ -3568,19 +3791,187 @@ export default function WarehouseLocations() {
 
 
             {/* ===============================================================
+                BULK ASSIGN PANEL  (shown when positions are selected)
+            =============================================================== */}
+
+            {bulkMode && selectedPositionIds.size > 0 && (
+
+              <div className="rounded-xl border-2 border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4 shadow-lg">
+
+                <div className="mb-3 flex items-center justify-between">
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100">
+                      <Layers size={14} className="text-violet-600" />
+                    </div>
+                    <p className="text-sm font-bold text-violet-800">
+                      Bulk Assign —{' '}
+                      <span className="text-violet-600">
+                        {selectedPositionIds.size} position{selectedPositionIds.size !== 1 ? 's' : ''} selected
+                      </span>
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPositionIds(new Set())}
+                    className="rounded-lg p-1 text-violet-400 hover:bg-violet-100 hover:text-violet-700"
+                    title="Clear selection"
+                  >
+                    <X size={14} />
+                  </button>
+
+                </div>
+
+
+                {/* Product picker (reused from single assign) */}
+                {bulkProduct ? (
+
+                  <div className="mb-3 flex items-center gap-3 rounded-xl border border-violet-200 bg-white p-3">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100">
+                      <Zap size={14} className="text-violet-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-violet-900">
+                        {bulkProduct.brand} {bulkProduct.model}
+                      </p>
+                      <p className="text-[11px] text-violet-600">
+                        {bulkProduct.dimensions}
+                        {bulkProduct.sku && <span className="ml-2 font-mono opacity-70">{bulkProduct.sku}</span>}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setBulkProduct(null); setBulkTireSize(''); }}
+                      className="shrink-0 rounded-lg p-1 text-violet-400 hover:bg-violet-200"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+
+                ) : (
+
+                  <div className="relative mb-3">
+                    <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder={loadingProducts ? 'Loading...' : 'Search product to auto-fill size...'}
+                      value={bulkProductSearch}
+                      disabled={loadingProducts}
+                      onChange={e => { setBulkProductSearch(e.target.value); setShowBulkProductDropdown(true); }}
+                      onFocus={() => { loadProducts(); setShowBulkProductDropdown(true); }}
+                      className="w-full rounded-lg border border-violet-200 bg-white py-2 pl-9 pr-3 text-sm outline-none placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
+                    />
+
+                    {showBulkProductDropdown && products.length > 0 && (
+                      <div className="absolute z-50 mt-1 max-h-40 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                        {products
+                          .filter(p => {
+                            const q = bulkProductSearch.toLowerCase();
+                            return !q || p.brand?.toLowerCase().includes(q) || p.model?.toLowerCase().includes(q) || p.dimensions?.toLowerCase().includes(q) || p.sku?.toLowerCase().includes(q);
+                          })
+                          .map(product => {
+                            const label = [product.brand, product.model, product.dimensions].filter(Boolean).join(' ');
+                            return (
+                              <button
+                                key={product.id}
+                                type="button"
+                                onClick={() => {
+                                  setBulkProduct(product);
+                                  setBulkTireSize(label);
+                                  setBulkProductSearch('');
+                                  setShowBulkProductDropdown(false);
+                                }}
+                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-violet-50"
+                              >
+                                <Tag size={12} className="shrink-0 text-slate-400" />
+                                <span className="font-medium">{product.brand} {product.model}</span>
+                                <span className="ml-auto text-[11px] text-slate-400">{product.dimensions}</span>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+
+                )}
+
+
+                {/* Tire size + quantity row */}
+                <div className="flex gap-2">
+
+                  <div className="relative flex-1">
+                    <Tag size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Tire size..."
+                      value={bulkTireSize}
+                      onChange={e => setBulkTireSize(e.target.value)}
+                      className={`w-full rounded-lg border py-2.5 pl-9 pr-3 text-sm outline-none transition focus:ring-2 ${
+                        bulkProduct
+                          ? 'border-violet-300 bg-violet-50 font-semibold text-violet-900 focus:border-violet-400 focus:ring-violet-100'
+                          : 'border-slate-200 bg-white focus:border-violet-400 focus:ring-violet-100'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="relative w-24">
+                    <Package size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Qty"
+                      value={bulkQuantity}
+                      onChange={e => setBulkQuantity(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-2 text-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={saveBulkPositions}
+                    disabled={bulkSaving || !bulkTireSize.trim()}
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {bulkSaving
+                      ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                      : <Save size={14} />
+                    }
+                    {bulkSaving ? 'Saving...' : 'Apply'}
+                  </button>
+
+                </div>
+
+                <p className="mt-2 text-[11px] text-violet-500">
+                  This will overwrite the tire size and quantity for all {selectedPositionIds.size} selected position{selectedPositionIds.size !== 1 ? 's' : ''}.
+                </p>
+
+              </div>
+
+            )}
+
+
+            {/* ===============================================================
                 CLOSE
             =============================================================== */}
 
-            <div className="flex justify-end border-t border-slate-200 pt-4">
+            <div className="flex items-center justify-between border-t border-slate-200 pt-4">
+
+              {bulkMode && (
+                <p className="text-xs text-slate-400">
+                  {selectedPositionIds.size === 0
+                    ? 'Click positions to select them'
+                    : `${selectedPositionIds.size} selected`
+                  }
+                </p>
+              )}
 
               <button
                 type="button"
                 onClick={closePositionsModal}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="ml-auto rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-
                 Close
-
               </button>
 
             </div>
@@ -3674,30 +4065,228 @@ export default function WarehouseLocations() {
 
 
             {/* ===============================================================
-                TIRE SIZE
+                PRODUCT PICKER
+            =============================================================== */}
+
+            <div className="space-y-2">
+
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <Car size={12} />
+                  Select Tire Product
+                  <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-bold text-blue-600">
+                    Recommended
+                  </span>
+                </span>
+              </label>
+
+              {/* Selected product card */}
+              {selectedProduct ? (
+
+                <div className="flex items-start gap-3 rounded-xl border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-3">
+
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100">
+                    <Zap size={16} className="text-blue-600" />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+
+                    <p className="truncate text-sm font-bold text-blue-900">
+                      {selectedProduct.brand} {selectedProduct.model}
+                    </p>
+
+                    <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-blue-700">
+
+                      {selectedProduct.dimensions && (
+                        <span className="inline-flex items-center gap-1">
+                          <Tag size={9} />
+                          {selectedProduct.dimensions}
+                        </span>
+                      )}
+
+                      <span className="inline-flex items-center gap-1">
+                        <Package size={9} />
+                        Stock: {selectedProduct.current_stock ?? 0}
+                      </span>
+
+                      {selectedProduct.sku && (
+                        <span className="font-mono opacity-70">
+                          {selectedProduct.sku}
+                        </span>
+                      )}
+
+                    </div>
+
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedProduct(null);
+                      setTireSizeInput('');
+                      setProductSearch('');
+                    }}
+                    className="shrink-0 rounded-lg p-1 text-blue-400 transition-colors hover:bg-blue-200 hover:text-blue-700"
+                    title="Clear selection"
+                  >
+                    <X size={13} />
+                  </button>
+
+                </div>
+
+              ) : (
+
+                /* Search box + dropdown */
+                <div className="relative">
+
+                  <div className="relative">
+
+                    <Search
+                      size={14}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+
+                    <input
+                      type="text"
+                      placeholder={loadingProducts ? 'Loading products...' : 'Search brand, model, size...'}
+                      value={productSearch}
+                      disabled={loadingProducts}
+                      onChange={e => {
+                        setProductSearch(e.target.value);
+                        setShowProductDropdown(true);
+                      }}
+                      onFocus={() => setShowProductDropdown(true)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                    />
+
+                    <ChevronDown
+                      size={14}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+
+                  </div>
+
+
+                  {/* Dropdown list */}
+                  {showProductDropdown && products.length > 0 && (
+
+                    <div className="absolute z-50 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+
+                      {(() => {
+                        const q = productSearch.toLowerCase();
+                        const filtered = products.filter(p =>
+                          !q ||
+                          p.brand?.toLowerCase().includes(q) ||
+                          p.model?.toLowerCase().includes(q) ||
+                          p.dimensions?.toLowerCase().includes(q) ||
+                          p.sku?.toLowerCase().includes(q)
+                        );
+
+                        if (filtered.length === 0) {
+                          return (
+                            <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400">
+                              <Search size={13} />
+                              No matching products
+                            </div>
+                          );
+                        }
+
+                        return filtered.map(product => {
+                          const tireLabel =
+                            [product.brand, product.model, product.dimensions]
+                              .filter(Boolean)
+                              .join(' ');
+
+                          return (
+                            <button
+                              key={product.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedProduct(product);
+                                setTireSizeInput(tireLabel);
+                                setProductSearch('');
+                                setShowProductDropdown(false);
+                              }}
+                              className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-blue-50"
+                            >
+
+                              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100">
+                                <Tag size={12} className="text-slate-500" />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+
+                                <p className="truncate text-sm font-semibold text-slate-800">
+                                  {product.brand} {product.model}
+                                </p>
+
+                                <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+
+                                  {product.dimensions && (
+                                    <span>{product.dimensions}</span>
+                                  )}
+
+                                  {product.sku && (
+                                    <span className="font-mono">{product.sku}</span>
+                                  )}
+
+                                </div>
+
+                              </div>
+
+                              {/* stock badge */}
+                              <span
+                                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  (product.current_stock ?? 0) === 0
+                                    ? 'bg-red-100 text-red-600'
+                                    : (product.current_stock ?? 0) <= (product.reorder_level ?? 10)
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-green-100 text-green-700'
+                                }`}
+                              >
+                                {product.current_stock ?? 0} in stock
+                              </span>
+
+                            </button>
+                          );
+                        });
+                      })()}
+
+                    </div>
+
+                  )}
+
+                </div>
+
+              )}
+
+              <p className="text-[11px] text-slate-400">
+                Can't find it? Type manually in the Tire Size field below.
+              </p>
+
+            </div>
+
+
+            {/* ===============================================================
+                TIRE SIZE (manual / auto-filled)
             =============================================================== */}
 
             <Field
               label="Tire Size"
-              required={
-                Number(
-                  quantityInput
-                ) > 0
+              required={Number(quantityInput) > 0}
+              hint={
+                selectedProduct
+                  ? 'Auto-filled from selected product'
+                  : 'Example: Dual Sport 90/90-17'
               }
-              hint="Example: Dual Sport 90/90-17"
             >
 
               <TextInput
                 icon={Tag}
-                value={
-                  tireSizeInput
-                }
-                onChange={e =>
-                  setTireSizeInput(
-                    e.target.value
-                  )
-                }
+                value={tireSizeInput}
+                onChange={e => setTireSizeInput(e.target.value)}
                 placeholder="Dual Sport 90/90-17"
+                className={selectedProduct ? 'border-blue-300 bg-blue-50 font-semibold text-blue-800' : ''}
               />
 
             </Field>
