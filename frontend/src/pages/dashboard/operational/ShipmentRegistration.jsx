@@ -24,9 +24,6 @@ export default function ShipmentRegistration() {
   const [statusFilter, setStatusFilter] = useState('all');
 
   // Location picker state
-  const [locationSearch, setLocationSearch] = useState('');
-  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
-  const [selectedLocationObj, setSelectedLocationObj] = useState(null);
 
   // Product catalog state
   const [products, setProducts] = useState([]);
@@ -57,7 +54,6 @@ export default function ShipmentRegistration() {
     expected_arrival_date: '',
     notes: '',
     product_breakdown: [],
-    assigned_location_id: ''
   });
 
   useEffect(() => {
@@ -168,7 +164,7 @@ export default function ShipmentRegistration() {
     setLoadingPositions(prev => ({ ...prev, [rackId]: true }));
 
     try {
-      // Get the rack info to filter positions
+      // Get the rack info
       const rack = racks.find(r => r.id === rackId);
       if (!rack) {
         console.warn('Rack not found:', rackId);
@@ -176,17 +172,18 @@ export default function ShipmentRegistration() {
         return;
       }
 
-      // Load all warehouse locations and filter by rack code prefix
-      const response = await api.get('/warehouse-locations');
-      const allLocations = response.data.locations || [];
+      console.log(`📍 Loading positions for rack ${rack.rack_code} (ID: ${rackId})...`);
+
+      // Load storage positions from the dedicated endpoint
+      const response = await api.get(`/warehouse-locations/${rackId}/positions`);
+      const positions = response.data.positions || [];
       
-      // Filter positions that start with this rack's code (e.g., "WH1-R05-RK05")
-      const positions = allLocations.filter(loc => {
-        const posCode = loc.position_code || loc.code || '';
-        return posCode.startsWith(rack.position_code_prefix);
-      });
+      console.log(`📍 Loaded ${positions.length} storage positions for rack ${rack.rack_code}`);
       
-      console.log(`📍 Loaded ${positions.length} positions for rack ${rack.rack_code}`);
+      if (positions.length > 0) {
+        console.log('Sample position:', positions[0]);
+      }
+      
       setRackPositions(prev => ({ ...prev, [rackId]: positions }));
     } catch (err) {
       console.warn(`Could not load positions for rack ${rackId}:`, err.message);
@@ -204,20 +201,20 @@ export default function ShipmentRegistration() {
     const positions = rackPositions[rackId] || [];
     
     return positions.filter(position => {
-      // warehouse_locations table uses: current_stock, capacity, tire_size, status
+      // warehouse_storage_positions table uses: current_stock, capacity, tire_size, status
       const currentQty = Number(position.current_stock || 0);
       const capacity = Number(position.capacity || 0);
       const positionTireSize = position.tire_size;
       const status = position.status;
       
-      // Only show active/available positions
-      if (status && status !== 'active' && status !== 'available') return false;
+      // Only show active/available/empty positions
+      if (status && status !== 'active' && status !== 'available' && status !== 'empty') return false;
       
       // Position must have available capacity
       if (currentQty >= capacity) return false;
       
       // If position is empty (no tire size assigned), it's available
-      if (!positionTireSize) return true;
+      if (!positionTireSize || positionTireSize === '') return true;
       
       // If position has a tire size, it must match the product's tire size
       if (tireSize && positionTireSize === tireSize) return true;
@@ -225,6 +222,48 @@ export default function ShipmentRegistration() {
       // Position has a different tire size - not compatible
       return false;
     });
+  };
+
+  /* ==========================================================================
+     GET OCCUPIED POSITIONS SUMMARY FOR RACK
+  ========================================================================== */
+
+  const getOccupiedPositionsSummary = (rackId) => {
+    const positions = rackPositions[rackId] || [];
+    
+    // Group occupied positions by section → shelf → subsection
+    const occupancyMap = {};
+    
+    positions.forEach(pos => {
+      if (pos.current_stock && pos.current_stock > 0) {
+        // Check if section_number, shelf_number, and subsection_number exist
+        if (!pos.section_number || !pos.shelf_number || !pos.subsection_number) {
+          console.warn('Position missing section/shelf/subsection numbers:', pos);
+          return; // Skip this position
+        }
+        
+        const section = `S${String(pos.section_number).padStart(2, '0')}`;
+        const shelf = `SH${String(pos.shelf_number).padStart(2, '0')}`;
+        const subsection = `SUB${String(pos.subsection_number).padStart(2, '0')}`;
+        
+        if (!occupancyMap[section]) {
+          occupancyMap[section] = {};
+        }
+        if (!occupancyMap[section][shelf]) {
+          occupancyMap[section][shelf] = [];
+        }
+        
+        occupancyMap[section][shelf].push({
+          subsection,
+          position_code: pos.position_code,
+          tire_size: pos.tire_size,
+          quantity: pos.current_stock,
+          capacity: pos.capacity
+        });
+      }
+    });
+    
+    return occupancyMap;
   };
 
   /* ==========================================================================
@@ -377,20 +416,10 @@ export default function ShipmentRegistration() {
       expected_quantity: shipment.expected_quantity || '',
       expected_arrival_date: shipment.expected_arrival_date || '',
       notes: shipment.notes || '',
-      product_breakdown: Array.isArray(shipment.product_breakdown) ? migrateProductBreakdown(shipment.product_breakdown) : [],
-      assigned_location_id: shipment.assigned_location_id || ''
+      product_breakdown: Array.isArray(shipment.product_breakdown) ? migrateProductBreakdown(shipment.product_breakdown) : []
     };
 
-    // Restore selected location object for the picker
-    if (shipment.assigned_location_id) {
-      const loc = warehouseLocations.find(l => l.id === shipment.assigned_location_id)
-               || shipment.assigned_location
-               || null;
-      setSelectedLocationObj(loc);
-    } else {
-      setSelectedLocationObj(null);
-    }
-    setLocationSearch('');
+    
     
     console.log('📤 Setting formData to:', formDataToSet);
     console.log('📤 formData.product_breakdown:', formDataToSet.product_breakdown);
@@ -429,13 +458,10 @@ export default function ShipmentRegistration() {
       expected_arrival_date: '',
       notes: '',
       product_breakdown: [],
-      assigned_location_id: ''
     });
     setEditingShipment(null);
     setShowForm(false);
-    setLocationSearch('');
-    setShowLocationDropdown(false);
-    setSelectedLocationObj(null);
+    
   };
 
   // Product breakdown helpers
@@ -971,10 +997,34 @@ export default function ShipmentRegistration() {
                               </div>
                             </div>
                             
-                            {/* Quantity Summary */}
-                            <div className="mt-3 flex items-center justify-between rounded-lg bg-white/70 px-3 py-2">
+                            {/* Quantity Summary - EDITABLE (only for new shipments) */}
+                            <div className={`mt-3 flex items-center justify-between rounded-lg px-3 py-2 ${editingShipment ? 'bg-slate-50' : 'bg-white/70 border-2 border-emerald-200'}`}>
                               <span className="text-xs font-medium text-slate-600">Total Quantity:</span>
-                              <span className="text-lg font-bold text-emerald-700">{item.quantity} tires</span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  value={item.quantity || ''}
+                                  onChange={(e) => {
+                                    if (editingShipment) return; // Prevent changes to saved shipments
+                                    const newQty = parseInt(e.target.value) || 0;
+                                    updateProductLine(index, 'quantity', newQty);
+                                    // Auto-update expected_quantity
+                                    setTimeout(() => {
+                                      const newTotal = getTotalBreakdownQty();
+                                      setFormData(prev => ({ ...prev, expected_quantity: newTotal }));
+                                    }, 0);
+                                  }}
+                                  disabled={!!editingShipment}
+                                  min="1"
+                                  className={`w-24 px-3 py-1 text-center text-lg font-bold rounded-lg focus:outline-none ${
+                                    editingShipment 
+                                      ? 'bg-slate-100 text-slate-500 border-2 border-slate-300 cursor-not-allowed' 
+                                      : 'text-emerald-700 bg-white border-2 border-emerald-300 focus:ring-2 focus:ring-emerald-500 focus:border-transparent'
+                                  }`}
+                                  placeholder="0"
+                                />
+                                <span className="text-sm font-medium text-slate-600">tires</span>
+                              </div>
                             </div>
                             
                             {/* Position Assignments */}
@@ -1059,135 +1109,6 @@ export default function ShipmentRegistration() {
                     />
                   </div>
 
-                  {/* ─── Assigned Warehouse Location ─────────────────────────── */}
-                  <div>
-                    <div className="flex items-center space-x-2 mb-4">
-                      <div className="p-2 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-lg">
-                        <Navigation className="h-4 w-4 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-800">Assigned Warehouse Location</h3>
-                        <p className="text-xs text-slate-500">Tells receiving staff exactly where to place this shipment. Quantity will be confirmed on arrival.</p>
-                      </div>
-                    </div>
-
-                    {selectedLocationObj ? (
-
-                      /* Selected location card */
-                      <div className="flex items-center gap-4 rounded-xl border-2 border-emerald-300 bg-gradient-to-r from-emerald-50 to-emerald-50 p-4">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100">
-                          <Warehouse className="h-5 w-5 text-emerald-700" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-mono text-sm font-bold text-emerald-800">{selectedLocationObj.code}</p>
-                          <p className="text-xs text-emerald-600">
-                            Zone {selectedLocationObj.zone || '—'}
-                            {selectedLocationObj.aisle ? ` · Row ${String(selectedLocationObj.aisle).padStart(2,'0')}` : ''}
-                            {selectedLocationObj.rack  ? ` · Rack ${String(selectedLocationObj.rack).padStart(2,'0')}` : ''}
-                          </p>
-                          {selectedLocationObj.capacity > 0 && (
-                            <p className="mt-1 text-xs text-slate-500">
-                              Capacity: {Number(selectedLocationObj.current_stock||0).toLocaleString()} / {Number(selectedLocationObj.capacity).toLocaleString()} tires
-                            </p>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedLocationObj(null);
-                            setFormData(prev => ({ ...prev, assigned_location_id: '' }));
-                            setLocationSearch('');
-                          }}
-                          className="shrink-0 rounded-lg p-1.5 text-emerald-400 hover:bg-emerald-200 hover:text-emerald-700 transition-colors"
-                          title="Remove location"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                    ) : (
-
-                      /* Searchable picker */
-                      <div className="relative">
-                        <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-                          <Search className="h-4 w-4 text-slate-400" />
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="Search rack code or zone… (e.g. WH1-LOC or Zone A)"
-                          value={locationSearch}
-                          onChange={e => { setLocationSearch(e.target.value); setShowLocationDropdown(true); }}
-                          onFocus={() => setShowLocationDropdown(true)}
-                          className="w-full rounded-xl border-2 border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                        />
-                        {formData.assigned_location_id === '' && (
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">Optional</span>
-                        )}
-
-                        {showLocationDropdown && (
-                          <div className="absolute z-50 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-2xl">
-                            {warehouseLocations
-                              .filter(loc => {
-                                const q = locationSearch.toLowerCase();
-                                return !q
-                                  || loc.code?.toLowerCase().includes(q)
-                                  || String(loc.zone || '').toLowerCase().includes(q)
-                                  || String(loc.aisle || '').includes(q)
-                                  || String(loc.rack || '').includes(q);
-                              })
-                              .slice(0, 20)
-                              .map(loc => {
-                                const pct = loc.capacity > 0
-                                  ? Math.round((loc.current_stock / loc.capacity) * 100)
-                                  : 0;
-                                const free = (loc.capacity || 0) - (loc.current_stock || 0);
-                                return (
-                                  <button
-                                    key={loc.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSelectedLocationObj(loc);
-                                      setFormData(prev => ({ ...prev, assigned_location_id: loc.id }));
-                                      setLocationSearch('');
-                                      setShowLocationDropdown(false);
-                                    }}
-                                    className="flex w-full items-center gap-3 border-b border-slate-50 px-4 py-3 text-left text-sm last:border-0 hover:bg-emerald-50"
-                                  >
-                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
-                                      <Warehouse className="h-4 w-4 text-emerald-600" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="font-mono text-xs font-bold text-emerald-800">{loc.code}</p>
-                                      <p className="text-[11px] text-slate-500">
-                                        Zone {loc.zone || '—'} · Row {String(loc.aisle||0).padStart(2,'0')} · Rack {String(loc.rack||0).padStart(2,'0')}
-                                      </p>
-                                    </div>
-                                    <div className="shrink-0 text-right">
-                                      <p className={`text-xs font-bold ${ pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-amber-600' : 'text-emerald-600' }`}>
-                                        {free.toLocaleString()} free
-                                      </p>
-                                      <div className="mt-1 h-1 w-14 overflow-hidden rounded-full bg-slate-200">
-                                        <div
-                                          className={`h-full rounded-full ${ pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500' }`}
-                                          style={{ width: `${pct}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            {warehouseLocations.filter(loc => {
-                              const q = locationSearch.toLowerCase();
-                              return !q || loc.code?.toLowerCase().includes(q) || String(loc.zone||'').toLowerCase().includes(q);
-                            }).length === 0 && (
-                              <div className="px-4 py-6 text-center text-sm text-slate-400">No locations found</div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                    )}
-                  </div>
 
                   {/* Modal Footer */}
                   <div className="flex justify-end space-x-3 pt-6 border-t border-slate-200">
@@ -1544,11 +1465,58 @@ export default function ShipmentRegistration() {
                     </select>
                   </div>
 
-                  {/* Step 2: Select Positions */}
+                  {/* Step 2: Rack Occupancy Overview */}
+                  {selectedRackId && !loadingPositions[selectedRackId] && (() => {
+                    const occupancyMap = getOccupiedPositionsSummary(selectedRackId);
+                    const hasOccupiedPositions = Object.keys(occupancyMap).length > 0;
+                    
+                    return hasOccupiedPositions && (
+                      <div className="mb-6">
+                        <label className="block text-sm font-semibold text-slate-700 mb-2">
+                          Current Rack Occupancy
+                        </label>
+                        <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-4 space-y-3">
+                          {Object.entries(occupancyMap).map(([section, shelves]) => (
+                            <div key={section} className="bg-white rounded-lg p-3 shadow-sm">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Layers className="h-4 w-4 text-blue-600" />
+                                <span className="font-bold text-sm text-blue-900">{section}</span>
+                              </div>
+                              <div className="space-y-2 pl-6">
+                                {Object.entries(shelves).map(([shelf, subsections]) => (
+                                  <div key={shelf} className="space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <ChevronRight className="h-3 w-3 text-blue-500" />
+                                      <span className="text-xs font-semibold text-slate-700">{shelf}</span>
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-1 pl-5">
+                                      {subsections.map((sub, idx) => (
+                                        <div key={idx} className="flex items-center justify-between text-xs bg-slate-50 rounded px-2 py-1">
+                                          <span className="font-mono text-[10px] text-slate-600">{sub.subsection}</span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-semibold text-blue-700">{sub.tire_size}</span>
+                                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                                              {sub.quantity}/{sub.capacity}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Step 3: Select Positions */}
                   {selectedRackId && (
                     <div>
                       <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        Step 2: Select Positions (Multiple)
+                        {getOccupiedPositionsSummary(selectedRackId) && Object.keys(getOccupiedPositionsSummary(selectedRackId)).length > 0 ? 'Step 3' : 'Step 2'}: Select Positions (Multiple)
                       </label>
                       
                       {loadingPositions[selectedRackId] ? (
@@ -1569,6 +1537,23 @@ export default function ShipmentRegistration() {
                             }, 0);
                             const quantityNeeded = formData.product_breakdown[editingProductIndex]?.quantity || 0;
                             const isEnoughCapacity = totalCapacity >= quantityNeeded;
+
+                            // Group positions by section → shelf
+                            const groupedPositions = {};
+                            availablePositions.forEach(pos => {
+                              const section = `S${String(pos.section_number).padStart(2, '0')}`;
+                              const shelf = `SH${String(pos.shelf_number).padStart(2, '0')}`;
+                              const key = `${section}-${shelf}`;
+                              
+                              if (!groupedPositions[key]) {
+                                groupedPositions[key] = {
+                                  section,
+                                  shelf,
+                                  positions: []
+                                };
+                              }
+                              groupedPositions[key].positions.push(pos);
+                            });
 
                             return (
                               <>
@@ -1591,7 +1576,7 @@ export default function ShipmentRegistration() {
                                   </div>
                                 )}
 
-                                {/* Position List */}
+                                {/* Position List (Grouped) */}
                                 {availablePositions.length === 0 ? (
                                   <div className="text-center py-8 bg-slate-50 rounded-xl">
                                     <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto mb-3" />
@@ -1599,74 +1584,94 @@ export default function ShipmentRegistration() {
                                     <p className="text-xs text-slate-500 mt-1">All positions in this rack are full or incompatible</p>
                                   </div>
                                 ) : (
-                                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                                    {availablePositions.map(position => {
-                                      const currentQty = Number(position.current_stock || 0);
-                                      const capacity = Number(position.capacity || 0);
-                                      const available = capacity - currentQty;
-                                      const utilization = (currentQty / capacity) * 100;
-                                      const isSelected = selectedPositionIds.includes(position.id);
-
-                                      return (
-                                        <label
-                                          key={position.id}
-                                          className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                                            isSelected
-                                              ? 'border-emerald-300 bg-emerald-50'
-                                              : 'border-slate-200 hover:border-emerald-200 hover:bg-slate-50'
-                                          }`}
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={isSelected}
-                                            onChange={(e) => {
-                                              if (e.target.checked) {
-                                                setSelectedPositionIds([...selectedPositionIds, position.id]);
-                                              } else {
-                                                setSelectedPositionIds(selectedPositionIds.filter(id => id !== position.id));
-                                              }
-                                            }}
-                                            className="h-4 w-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
-                                          />
-                                          <div className="flex-1">
-                                            <p className="font-mono text-sm font-bold text-slate-800">
-                                              {position.position_code || position.code || `Position-${position.id}`}
-                                            </p>
-                                            <div className="flex items-center gap-2 mt-1">
-                                              <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
-                                                available > 0 
-                                                  ? 'bg-emerald-100 text-emerald-700'
-                                                  : 'bg-red-100 text-red-700'
-                                              }`}>
-                                                {available} available
-                                              </span>
-                                              {position.tire_size && (
-                                                <span className="text-xs text-slate-600">
-                                                  Current: {position.tire_size}
-                                                </span>
-                                              )}
-                                            </div>
-                                            {/* Capacity Bar */}
-                                            <div className="mt-2">
-                                              <div className="mb-1 flex items-center justify-between">
-                                                <span className="text-[10px] font-semibold uppercase text-slate-400">Capacity</span>
-                                                <span className="text-xs font-bold text-slate-700">{currentQty} / {capacity}</span>
-                                              </div>
-                                              <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
-                                                <div
-                                                  className={`h-full rounded-full transition-all ${
-                                                    utilization >= 90 ? 'bg-red-500'
-                                                    : utilization >= 70 ? 'bg-amber-500'
-                                                    : 'bg-emerald-500'
-                                                  }`}
-                                                  style={{ width: `${utilization}%` }}
-                                                />
-                                              </div>
-                                            </div>
+                                  <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                                    {Object.entries(groupedPositions).map(([key, group]) => (
+                                      <div key={key} className="rounded-lg border border-slate-200 overflow-hidden">
+                                        {/* Section/Shelf Header */}
+                                        <div className="bg-gradient-to-r from-slate-100 to-slate-50 px-3 py-2 border-b border-slate-200">
+                                          <div className="flex items-center gap-2">
+                                            <Layers className="h-3.5 w-3.5 text-slate-600" />
+                                            <span className="text-xs font-bold text-slate-700">
+                                              {group.section} · {group.shelf}
+                                            </span>
+                                            <span className="text-[10px] text-slate-500">
+                                              ({group.positions.length} positions)
+                                            </span>
                                           </div>
-                                        </label>
-                                      );
-                                    })}
+                                        </div>
+                                        
+                                        {/* Positions in this section/shelf */}
+                                        <div className="p-2 space-y-2">
+                                          {group.positions.map(position => {
+                                            const currentQty = Number(position.current_stock || 0);
+                                            const capacity = Number(position.capacity || 0);
+                                            const available = capacity - currentQty;
+                                            const utilization = (currentQty / capacity) * 100;
+                                            const isSelected = selectedPositionIds.includes(position.id);
+
+                                            return (
+                                              <label
+                                                key={position.id}
+                                                className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                                                  isSelected
+                                                    ? 'border-emerald-300 bg-emerald-50'
+                                                    : 'border-slate-200 hover:border-emerald-200 hover:bg-slate-50'
+                                                }`}
+                                              >
+                                                <input
+                                                  type="checkbox"
+                                                  checked={isSelected}
+                                                  onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                      setSelectedPositionIds([...selectedPositionIds, position.id]);
+                                                    } else {
+                                                      setSelectedPositionIds(selectedPositionIds.filter(id => id !== position.id));
+                                                    }
+                                                  }}
+                                                  className="h-4 w-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
+                                                />
+                                                <div className="flex-1">
+                                                  <p className="font-mono text-sm font-bold text-slate-800">
+                                                    {position.position_code || position.code || `Position-${position.id}`}
+                                                  </p>
+                                                  <div className="flex items-center gap-2 mt-1">
+                                                    <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                                                      available > 0 
+                                                        ? 'bg-emerald-100 text-emerald-700'
+                                                        : 'bg-red-100 text-red-700'
+                                                    }`}>
+                                                      {available} available
+                                                    </span>
+                                                    {position.tire_size && (
+                                                      <span className="text-xs text-slate-600">
+                                                        Current: {position.tire_size}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                  {/* Capacity Bar */}
+                                                  <div className="mt-2">
+                                                    <div className="mb-1 flex items-center justify-between">
+                                                      <span className="text-[10px] font-semibold uppercase text-slate-400">Capacity</span>
+                                                      <span className="text-xs font-bold text-slate-700">{currentQty} / {capacity}</span>
+                                                    </div>
+                                                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                                      <div
+                                                        className={`h-full rounded-full transition-all ${
+                                                          utilization >= 90 ? 'bg-red-500'
+                                                          : utilization >= 70 ? 'bg-amber-500'
+                                                          : 'bg-emerald-500'
+                                                        }`}
+                                                        style={{ width: `${utilization}%` }}
+                                                      />
+                                                    </div>
+                                                  </div>
+                                                </div>
+                                              </label>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
                                 )}
                               </>
@@ -1839,23 +1844,6 @@ export default function ShipmentRegistration() {
                       )}
 
                       {/* Assigned Location */}
-                      {shipment.assigned_location && (
-                        <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                          <Navigation className="h-4 w-4 shrink-0 text-emerald-600" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-500">Assigned Location</p>
-                            <p className="font-mono text-xs font-bold text-emerald-800 truncate">{shipment.assigned_location.code}</p>
-                            <p className="text-[10px] text-emerald-500">
-                              Zone {shipment.assigned_location.zone || '—'}
-                              {shipment.assigned_location.aisle ? ` · Row ${String(shipment.assigned_location.aisle).padStart(2,'0')}` : ''}
-                              {shipment.assigned_location.rack  ? ` · Rack ${String(shipment.assigned_location.rack).padStart(2,'0')}` : ''}
-                            </p>
-                          </div>
-                          <Warehouse className="h-4 w-4 shrink-0 text-emerald-500" />
-                        </div>
-                      )}
-
-                      {/* Actions */}
                       <div className="flex space-x-2 pt-2">
                         <motion.button
                           whileHover={{ scale: 1.02 }}
