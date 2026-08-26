@@ -26,23 +26,6 @@ export async function getShipments(req, res) {
           contact_person,
           email,
           phone
-        ),
-        assigned_location:assigned_location_id (
-          id,
-          code,
-          zone,
-          aisle,
-          rack
-        ),
-        received_by_user:users!shipments_received_by_fkey (
-          id,
-          email,
-          full_name
-        ),
-        inspected_by_user:users!shipments_inspected_by_fkey (
-          id,
-          email,
-          full_name
         )
       `)
       .order('created_at', { ascending: false })

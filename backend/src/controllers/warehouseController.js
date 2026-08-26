@@ -70,7 +70,7 @@ export async function getRacks(req, res) {
       .from('rack_configurations')
       .select(`
         *,
-        warehouse:warehouse_locations(id, name, code)
+        warehouse:warehouses(id, name, code)
       `)
       .in('status', ['active', 'full'])
       .order('rack_number');
@@ -94,33 +94,6 @@ export async function getRacks(req, res) {
     console.log(`✅ Found ${data?.length || 0} racks`);
     if (data && data.length > 0) {
       console.log('📦 Sample rack:', data[0]);
-    } else {
-      console.warn('⚠️ NO RACKS FOUND! Query params:', { warehouse_id, size_category });
-      
-      // Try to diagnose the issue - test without filters
-      console.log('🔍 Testing: Can we see ANY racks at all?');
-      const { data: allRacks, error: allRacksError } = await supabaseAdmin
-        .from('rack_configurations')
-        .select('id, warehouse_id, rack_code, size_category, status');
-      
-      if (allRacksError) {
-        console.error('❌ Error fetching all racks:', allRacksError);
-      } else {
-        console.log(`🔍 Total racks in database (no filter): ${allRacks?.length || 0}`);
-        if (allRacks && allRacks.length > 0) {
-          console.log('🔍 Sample of ALL racks:', allRacks.slice(0, 3));
-          console.log('🔍 Warehouse IDs in database:', [...new Set(allRacks.map(r => r.warehouse_id))]);
-          console.log('🔍 Size categories in database:', [...new Set(allRacks.map(r => r.size_category))]);
-          console.log('🔍 Requested warehouse_id:', warehouse_id);
-          console.log('🔍 Requested size_category:', size_category);
-          console.log('🔍 Do any racks match warehouse?', allRacks.some(r => r.warehouse_id === warehouse_id));
-          if (size_category) {
-            console.log('🔍 Do any racks match category?', allRacks.some(r => r.size_category === size_category));
-          }
-        } else {
-          console.log('❌ NO RACKS IN DATABASE AT ALL!');
-        }
-      }
     }
 
     return res.json({

@@ -29,6 +29,8 @@ import {
   RefreshCw,
   Car,
   Zap,
+  Clock,
+  History,
 } from 'lucide-react';
 
 import Modal from '../../../components/common/Modal';
@@ -541,6 +543,9 @@ export default function WarehouseLocations() {
   const [showPositionsModal, setShowPositionsModal] =
     useState(false);
 
+  const [showAvailablePositionsModal, setShowAvailablePositionsModal] =
+    useState(false);
+
   const [selectedPosition, setSelectedPosition] =
     useState(null);
 
@@ -592,6 +597,34 @@ export default function WarehouseLocations() {
     useState(false);
 
   const [showProductDropdown, setShowProductDropdown] =
+    useState(false);
+
+  // Receive & Place Shipment state
+  const [showReceiveModal, setShowReceiveModal] =
+    useState(false);
+
+  const [shipmentData, setShipmentData] =
+    useState({
+      selectedProduct: null,
+      quantityToStore: '',
+      targetRackId: null,
+      targetPositionIds: [], // Changed to array for multiple positions
+    });
+
+  const [receiving, setReceiving] =
+    useState(false);
+
+  const [shipmentProductSearch, setShipmentProductSearch] =
+    useState('');
+
+  const [showShipmentProductDropdown, setShowShipmentProductDropdown] =
+    useState(false);
+
+  // Shipment history state
+  const [shipmentHistory, setShipmentHistory] =
+    useState([]);
+
+  const [showHistoryModal, setShowHistoryModal] =
     useState(false);
 
 
@@ -1229,6 +1262,216 @@ export default function WarehouseLocations() {
 
 
   /* ==========================================================================
+     OPEN AVAILABLE POSITIONS MODAL
+  ========================================================================== */
+
+  const openAvailablePositions = async location => {
+    setSelectedRack(location);
+    await loadRackPositions(location);
+    setShowAvailablePositionsModal(true);
+  };
+
+
+  /* ==========================================================================
+     GET AVAILABLE RACKS FOR SHIPMENT (active + has capacity)
+  ========================================================================== */
+
+  const getAvailableRacksForShipment = () => {
+    return locations.filter(rack => {
+      const availableCapacity = Number(rack.capacity || 0) - Number(rack.current_stock || 0);
+      return rack.status === 'active' && availableCapacity > 0;
+    });
+  };
+
+
+  /* ==========================================================================
+     GET AVAILABLE POSITIONS FOR RACK (considering tire size match)
+  ========================================================================== */
+
+  const getAvailablePositionsForRack = (rackId) => {
+    const positions = rackPositions[rackId] || [];
+    const selectedProduct = shipmentData.selectedProduct;
+    
+    return positions.filter(position => {
+      const currentQty = Number(position.current_stock || position.quantity || 0);
+      const capacity = Number(position.capacity || 0);
+      const tireSize = position.tire_size || position.tireSize;
+      
+      // Position must have available capacity
+      if (currentQty >= capacity) return false;
+      
+      // If position is empty, it's available
+      if (!tireSize && currentQty === 0) return true;
+      
+      // If position has a tire size, it must match the product dimensions
+      if (tireSize && selectedProduct?.dimensions) {
+        return tireSize === selectedProduct.dimensions;
+      }
+      
+      return false;
+    });
+  };
+
+
+  /* ==========================================================================
+     HANDLE ASSIGN SHIPMENT TO LOCATION (with multiple positions)
+  ========================================================================== */
+
+  const handleAssignShipmentToLocation = async () => {
+    const { selectedProduct, quantityToStore, targetRackId, targetPositionIds } = shipmentData;
+    
+    if (!selectedProduct) {
+      showToast('Please select a product', 'error');
+      return;
+    }
+    
+    if (!quantityToStore || Number(quantityToStore) <= 0) {
+      showToast('Please enter a valid quantity', 'error');
+      return;
+    }
+    
+    if (!targetRackId) {
+      showToast('Please select a rack', 'error');
+      return;
+    }
+    
+    if (!targetPositionIds || targetPositionIds.length === 0) {
+      showToast('Please select at least one position', 'error');
+      return;
+    }
+    
+    const positions = rackPositions[targetRackId] || [];
+    const selectedPositions = positions.filter(p => targetPositionIds.includes(p.id));
+    
+    if (selectedPositions.length === 0) {
+      showToast('Selected positions not found', 'error');
+      return;
+    }
+    
+    // Calculate total available capacity across selected positions
+    const totalAvailableCapacity = selectedPositions.reduce((sum, pos) => {
+      const currentQty = Number(pos.current_stock || pos.quantity || 0);
+      const capacity = Number(pos.capacity || 0);
+      return sum + (capacity - currentQty);
+    }, 0);
+    
+    const totalQuantity = Number(quantityToStore);
+    
+    if (totalQuantity > totalAvailableCapacity) {
+      showToast(
+        `Cannot store ${totalQuantity} tires. Selected positions only have ${totalAvailableCapacity} total capacity available.`,
+        'error'
+      );
+      return;
+    }
+    
+    setReceiving(true);
+    
+    try {
+      const tireLabel = [selectedProduct.brand, selectedProduct.model, selectedProduct.dimensions]
+        .filter(Boolean)
+        .join(' ');
+      
+      // Distribute quantity across positions
+      let remainingQty = totalQuantity;
+      const updates = [];
+      
+      for (const position of selectedPositions) {
+        if (remainingQty <= 0) break;
+        
+        const currentQty = Number(position.current_stock || position.quantity || 0);
+        const capacity = Number(position.capacity || 0);
+        const availableSpace = capacity - currentQty;
+        
+        // How much can we store in this position?
+        const qtyToStore = Math.min(remainingQty, availableSpace);
+        
+        if (qtyToStore > 0) {
+          updates.push({
+            positionId: position.id,
+            newQuantity: currentQty + qtyToStore,
+            qtyStored: qtyToStore,
+            positionCode: position.position_code || position.positionCode,
+          });
+          
+          remainingQty -= qtyToStore;
+        }
+      }
+      
+      // Execute all updates in parallel
+      await Promise.all(
+        updates.map(update =>
+          api.put(
+            `/warehouse-locations/${targetRackId}/positions/${update.positionId}`,
+            {
+              tire_size: tireLabel,
+              quantity: update.newQuantity,
+            }
+          )
+        )
+      );
+      
+      const positionSummary = updates.map(u => `${u.positionCode} (+${u.qtyStored})`).join(', ');
+      
+      showToast(
+        `Successfully stored ${totalQuantity} × ${tireLabel} across ${updates.length} position${updates.length > 1 ? 's' : ''}: ${positionSummary}`,
+        'success'
+      );
+      
+      // Add to shipment history
+      const historyEntry = {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        product: {
+          name: `${selectedProduct.brand} ${selectedProduct.model}`,
+          dimensions: selectedProduct.dimensions,
+          sku: selectedProduct.sku,
+        },
+        quantity: totalQuantity,
+        rack: locations.find(l => l.id === targetRackId),
+        positions: updates,
+        totalPositions: updates.length,
+      };
+      
+      setShipmentHistory(prev => [historyEntry, ...prev]);
+      
+      // Refresh data
+      await loadRackPositions({ id: targetRackId }, true);
+      await loadLocations();
+      
+      // Reset shipment form
+      setShipmentData({
+        selectedProduct: null,
+        quantityToStore: '',
+        targetRackId: null,
+        targetPositionIds: [],
+      });
+      setShipmentProductSearch('');
+      setShowReceiveModal(false);
+      
+    } catch (error) {
+      console.error('Shipment assignment error:', error);
+      showToast(
+        error.response?.data?.error || error.message || 'Failed to assign shipment',
+        'error'
+      );
+    } finally {
+      setReceiving(false);
+    }
+  };
+
+
+  /* ==========================================================================
+     CLOSE AVAILABLE POSITIONS MODAL
+  ========================================================================== */
+
+  const closeAvailablePositionsModal = () => {
+    setShowAvailablePositionsModal(false);
+    setSelectedRack(null);
+  };
+
+
+  /* ==========================================================================
      OPEN POSITION VIEWER
   ========================================================================== */
 
@@ -1609,6 +1852,87 @@ export default function WarehouseLocations() {
 
 
   /* ==========================================================================
+     RACK POSITION AVAILABILITY
+  ========================================================================== */
+
+  const getRackPositionAvailability = location => {
+    const positions = rackPositions[location.id];
+
+    const totalPositions = calcStoragePositions({
+      sectionsPerRack: Number(location.metadata?.sectionsPerRack ?? parseInt(location.shelf) ?? 0),
+      shelvesPerSection: Number(location.metadata?.shelvesPerSection ?? 8),
+      subsectionsPerSection: Number(location.metadata?.subsectionsPerSection ?? 2),
+    });
+
+    if (!positions) {
+      return { loaded: false, total: totalPositions, available: 0, bySection: {} };
+    }
+
+    const available = positions.filter(position => {
+      const quantity = Number(position.current_stock ?? position.quantity ?? 0);
+      const tireSize = position.tire_size || position.tireSize || null;
+      return quantity === 0 && !tireSize;
+    }).length;
+
+    // Group by section and subsection
+    const bySection = {};
+    positions.forEach(position => {
+      const sectionKey = `Section ${position.section_number}`;
+      const subsectionKey = `Subsection ${position.subsection_number}`;
+      
+      if (!bySection[sectionKey]) {
+        bySection[sectionKey] = {
+          total: 0,
+          available: 0,
+          subsections: {}
+        };
+      }
+
+      if (!bySection[sectionKey].subsections[subsectionKey]) {
+        bySection[sectionKey].subsections[subsectionKey] = {
+          total: 0,
+          available: 0,
+          shelves: []
+        };
+      }
+
+      const isAvailable = isPositionAvailable(position);
+      
+      bySection[sectionKey].total++;
+      bySection[sectionKey].subsections[subsectionKey].total++;
+      
+      if (isAvailable) {
+        bySection[sectionKey].available++;
+        bySection[sectionKey].subsections[subsectionKey].available++;
+      }
+
+      bySection[sectionKey].subsections[subsectionKey].shelves.push({
+        shelf_number: position.shelf_number,
+        position,
+        available: isAvailable
+      });
+    });
+
+    return {
+      loaded: true,
+      total: positions.length || totalPositions,
+      available,
+      bySection
+    };
+  };
+
+
+  const isPositionAvailable = position => {
+    const quantity = Number(position.current_stock ?? position.quantity ?? 0);
+    const capacity = Number(position.capacity ?? 0);
+    const tireSize = position.tire_size || position.tireSize || null;
+    
+    // Truly available means: no tire assigned AND no quantity AND has capacity
+    return !tireSize && quantity === 0 && capacity > 0;
+  };
+
+
+  /* ==========================================================================
      RENDER HELPERS
   ========================================================================== */
 
@@ -1701,17 +2025,51 @@ export default function WarehouseLocations() {
           'manager',
           'operational_staff'
         ) && (
-          <button
-            onClick={() => {
-              setEditingLocation(null);
-              setFormData(EMPTY_FORM);
-              setShowModal(true);
-            }}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
-          >
-            <Plus size={16} />
-            Add Rack
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowHistoryModal(true)}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+              title="View Shipment History"
+            >
+              <History size={16} />
+              History
+              {shipmentHistory.length > 0 && (
+                <span className="ml-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
+                  {shipmentHistory.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => {
+                setShipmentData({
+                  selectedProduct: null,
+                  quantityToStore: '',
+                  targetRackId: null,
+                  targetPositionIds: [],
+                });
+                setShipmentProductSearch('');
+                setShowReceiveModal(true);
+                loadProducts();
+              }}
+              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700"
+            >
+              <Package size={16} />
+              Receive & Place Shipment
+            </button>
+
+            <button
+              onClick={() => {
+                setEditingLocation(null);
+                setFormData(EMPTY_FORM);
+                setShowModal(true);
+              }}
+              className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+            >
+              <Plus size={16} />
+              Add Rack
+            </button>
+          </div>
         )}
 
       </div>
@@ -2203,6 +2561,10 @@ export default function WarehouseLocations() {
                               </th>
 
                               <th className="px-5 py-2.5">
+                                Available Positions
+                              </th>
+
+                              <th className="px-5 py-2.5">
                                 Capacity
                               </th>
 
@@ -2336,6 +2698,11 @@ export default function WarehouseLocations() {
                                       location
                                     );
 
+                                  const positionAvailability =
+                                    getRackPositionAvailability(
+                                      location
+                                    );
+
 
                                   return (
 
@@ -2458,7 +2825,7 @@ export default function WarehouseLocations() {
                                             className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-400 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
                                           >
                                             <Plus size={10} />
-                                            Assign tire
+                                            Assign Tire
                                           </button>
 
                                         ) : (
@@ -2495,6 +2862,56 @@ export default function WarehouseLocations() {
                                           </div>
 
                                         )}
+
+                                      </td>
+
+
+                                      {/* =================================================
+                                          AVAILABLE POSITIONS
+                                      ================================================= */}
+
+                                      <td className="px-5 py-4">
+
+                                        <button
+                                          type="button"
+                                          onClick={() => openAvailablePositions(location)}
+                                          className="group flex min-w-[150px] items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-left transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-sm"
+                                          title="View available storage positions"
+                                        >
+                                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-600 shadow-sm ring-1 ring-emerald-100">
+                                            <MapPin size={14} />
+                                          </div>
+
+                                          <div className="min-w-0 flex-1">
+                                            {positionAvailability.loaded ? (
+                                              <>
+                                                <p className="text-sm font-bold text-emerald-700">
+                                                  {positionAvailability.available}
+                                                  <span className="ml-1 text-xs font-medium text-emerald-500">
+                                                    available
+                                                  </span>
+                                                </p>
+                                                <p className="text-[10px] text-slate-500">
+                                                  {positionAvailability.available} / {positionAvailability.total} positions
+                                                </p>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <p className="text-xs font-semibold text-slate-500">
+                                                  Loading positions...
+                                                </p>
+                                                <p className="text-[10px] text-slate-400">
+                                                  {positionAvailability.total.toLocaleString()} total positions
+                                                </p>
+                                              </>
+                                            )}
+                                          </div>
+
+                                          <ChevronRight
+                                            size={14}
+                                            className="shrink-0 text-emerald-400 transition-transform group-hover:translate-x-0.5"
+                                          />
+                                        </button>
 
                                       </td>
 
@@ -3761,10 +4178,24 @@ export default function WarehouseLocations() {
 
 
                                   {/* =================================
-                                      HOVER ACTION HINT
+                                      ASSIGN / EDIT ACTION
                                   ================================= */}
 
-                                  {!bulkMode && (
+                                  {!bulkMode && isPositionAvailable(position) && (
+                                    <button
+                                      type="button"
+                                      onClick={event => {
+                                        event.stopPropagation();
+                                        selectPosition(position);
+                                      }}
+                                      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-bold text-white transition-colors hover:bg-blue-700"
+                                    >
+                                      <Plus size={12} />
+                                      Assign Tire
+                                    </button>
+                                  )}
+
+                                  {!bulkMode && !isPositionAvailable(position) && (
                                     <div className="group mt-3 flex items-center justify-end gap-1 text-[10px] font-semibold text-blue-600 opacity-0 transition-opacity group-hover:opacity-100">
                                       <Edit size={11} />
                                       Assign / Edit
@@ -3984,6 +4415,656 @@ export default function WarehouseLocations() {
 
 
       {/* =====================================================================
+          AVAILABLE POSITIONS MODAL
+      ===================================================================== */}
+
+      <Modal
+        isOpen={showAvailablePositionsModal}
+        onClose={() => {
+          setShowAvailablePositionsModal(false);
+          setSelectedRack(null);
+        }}
+        size="lg"
+        title={
+          <span className="flex items-center gap-2">
+            <MapPin size={16} className="text-emerald-500" />
+            Available Positions
+          </span>
+        }
+      >
+        {selectedRack && (() => {
+          const positionAvailability = getRackPositionAvailability(selectedRack);
+          const meta = selectedRack.metadata || {};
+
+          return (
+            <div className="space-y-5">
+              {/* Rack Header */}
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
+                    <Warehouse size={18} className="text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="font-mono text-sm font-bold text-emerald-900">
+                      {selectedRack.code}
+                    </p>
+                    <p className="text-xs text-emerald-600">
+                      Row {padNumber(meta.rowNumber ?? parseInt(selectedRack.aisle))} · Rack {padNumber(meta.rackNumber ?? parseInt(selectedRack.rack))}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-4 gap-3 text-center">
+                  <div className="rounded-lg bg-white/70 p-2">
+                    <p className="text-[10px] uppercase text-emerald-600">Available</p>
+                    <p className="text-lg font-bold text-emerald-700">
+                      {positionAvailability.available}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-white/70 p-2">
+                    <p className="text-[10px] uppercase text-slate-500">Total</p>
+                    <p className="text-lg font-bold text-slate-700">
+                      {positionAvailability.total}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-white/70 p-2">
+                    <p className="text-[10px] uppercase text-blue-600">Sections</p>
+                    <p className="text-lg font-bold text-blue-700">
+                      {meta.sectionsPerRack || 6}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-white/70 p-2">
+                    <p className="text-[10px] uppercase text-violet-600">Subsections</p>
+                    <p className="text-lg font-bold text-violet-700">
+                      {meta.subsectionsPerSection || 2}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-3 rounded-full bg-emerald-500"></div>
+                    <span className="text-xs text-emerald-700">Available</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-3 rounded-full bg-amber-500"></div>
+                    <span className="text-xs text-amber-700">Partially Filled</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-3 w-3 rounded-full bg-red-500"></div>
+                    <span className="text-xs text-red-700">Full</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Sections Breakdown */}
+              {loadingPositions[selectedRack.id] ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw size={22} className="animate-spin text-emerald-500" />
+                  <span className="ml-2 text-sm text-slate-500">Loading positions...</span>
+                </div>
+              ) : (
+                <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+                  {Object.entries(positionAvailability.bySection || {}).map(([sectionName, sectionData]) => (
+                    <div key={sectionName} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      {/* Section Header */}
+                      <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Box size={14} className="text-blue-500" />
+                          <span className="text-sm font-bold text-slate-800">{sectionName}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                            sectionData.available === 0 
+                              ? 'bg-red-100 text-red-700'
+                              : sectionData.available < sectionData.total * 0.3
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {sectionData.available} available
+                          </span>
+                          <span className="text-xs text-slate-500">
+                            {sectionData.available} / {sectionData.total}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Subsections */}
+                      <div className="p-4 space-y-3">
+                        {Object.entries(sectionData.subsections || {}).map(([subsectionName, subsectionData]) => {
+                          const availableShelves = subsectionData.shelves.filter(s => s.available);
+                          
+                          return (
+                            <div key={subsectionName} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <Layers size={12} className="text-violet-500" />
+                                  <span className="text-xs font-bold text-slate-700">{subsectionName}</span>
+                                </div>
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                  subsectionData.available === 0
+                                    ? 'bg-red-100 text-red-700'
+                                    : subsectionData.available < subsectionData.total * 0.3
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-emerald-100 text-emerald-700'
+                                }`}>
+                                  {subsectionData.available} / {subsectionData.total} shelves
+                                </span>
+                              </div>
+
+                              {/* Shelf List */}
+                              {availableShelves.length > 0 ? (
+                                <div className="grid grid-cols-4 gap-2">
+                                  {availableShelves.map(shelf => (
+                                    <button
+                                      key={shelf.position.id}
+                                      type="button"
+                                      onClick={() => {
+                                        // Close available positions modal
+                                        setShowAvailablePositionsModal(false);
+                                        // Open tire assignment modal with this position
+                                        selectPosition(shelf.position);
+                                      }}
+                                      className="flex flex-col items-center justify-center rounded-lg border border-emerald-200 bg-white p-2 transition-all hover:border-emerald-400 hover:bg-emerald-50 hover:shadow-sm"
+                                    >
+                                      <span className="text-[10px] font-medium text-slate-500">Shelf</span>
+                                      <span className="text-sm font-bold text-emerald-700">
+                                        {padNumber(shelf.shelf_number)}
+                                      </span>
+                                      <span className="mt-1 inline-flex items-center gap-1 text-[9px] font-medium text-emerald-600">
+                                        <Plus size={8} />
+                                        Assign
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-center rounded-lg border border-dashed border-slate-200 bg-white px-4 py-3 text-center">
+                                  <span className="text-xs text-slate-400">All shelves are occupied</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {Object.keys(positionAvailability.bySection || {}).length === 0 && (
+                    <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50 py-12 text-center">
+                      <MapPin size={32} className="text-slate-300" />
+                      <p className="mt-2 text-sm font-semibold text-slate-600">No positions data available</p>
+                      <p className="text-xs text-slate-400">Try refreshing the page</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Close Button */}
+              <div className="flex justify-end border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAvailablePositionsModal(false);
+                    setSelectedRack(null);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+
+      {/* =====================================================================
+          RECEIVE & PLACE SHIPMENT MODAL
+      ===================================================================== */}
+
+      <Modal
+        isOpen={showReceiveModal}
+        onClose={() => {
+          setShowReceiveModal(false);
+          setShipmentData({
+            selectedProduct: null,
+            quantityToStore: '',
+            targetRackId: null,
+            targetPositionIds: [],
+          });
+          setShipmentProductSearch('');
+        }}
+        size="lg"
+        title={
+          <span className="flex items-center gap-2">
+            <Package size={16} className="text-emerald-500" />
+            Receive & Place Shipment
+          </span>
+        }
+      >
+        <div className="space-y-5">
+
+          {/* Header */}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-sm font-semibold text-emerald-800">
+              Assign incoming shipment directly to warehouse position(s)
+            </p>
+            <p className="mt-1 text-xs text-emerald-600">
+              Select product → Enter quantity → Choose rack → Choose position(s) → Confirm storage location
+            </p>
+          </div>
+
+          {/* Step 1: Product Selection */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Car size={12} />
+              Step 1: Select Product
+              <span className="text-red-400">*</span>
+            </label>
+
+            {shipmentData.selectedProduct ? (
+              <div className="flex items-start gap-3 rounded-xl border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+                  <Zap size={16} className="text-emerald-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold text-emerald-900">
+                    {shipmentData.selectedProduct.brand} {shipmentData.selectedProduct.model}
+                  </p>
+                  <div className="mt-0.5 flex flex-wrap gap-2 text-[11px] text-emerald-700">
+                    {shipmentData.selectedProduct.dimensions && (
+                      <span className="inline-flex items-center gap-1">
+                        <Tag size={9} />
+                        {shipmentData.selectedProduct.dimensions}
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-1">
+                      <Package size={9} />
+                      Stock: {shipmentData.selectedProduct.current_stock ?? 0}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShipmentData(prev => ({ ...prev, selectedProduct: null }));
+                    setShipmentProductSearch('');
+                  }}
+                  className="shrink-0 rounded-lg p-1 text-emerald-400 transition-colors hover:bg-emerald-200 hover:text-emerald-700"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder={loadingProducts ? 'Loading products...' : 'Search brand, model, size...'}
+                  value={shipmentProductSearch}
+                  disabled={loadingProducts}
+                  onChange={e => {
+                    setShipmentProductSearch(e.target.value);
+                    setShowShipmentProductDropdown(true);
+                  }}
+                  onFocus={() => {
+                    loadProducts();
+                    setShowShipmentProductDropdown(true);
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-9 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
+                />
+                <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+
+                {showShipmentProductDropdown && products.length > 0 && (
+                  <div className="absolute z-50 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+                    {(() => {
+                      const q = shipmentProductSearch.toLowerCase();
+                      const filtered = products.filter(p =>
+                        !q ||
+                        p.brand?.toLowerCase().includes(q) ||
+                        p.model?.toLowerCase().includes(q) ||
+                        p.dimensions?.toLowerCase().includes(q) ||
+                        p.sku?.toLowerCase().includes(q)
+                      );
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400">
+                            <Search size={13} />
+                            No matching products
+                          </div>
+                        );
+                      }
+
+                      return filtered.map(product => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => {
+                            setShipmentData(prev => ({ ...prev, selectedProduct: product }));
+                            setShipmentProductSearch('');
+                            setShowShipmentProductDropdown(false);
+                          }}
+                          className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-emerald-50"
+                        >
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100">
+                            <Tag size={12} className="text-slate-500" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-slate-800">
+                              {product.brand} {product.model}
+                            </p>
+                            <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-slate-500">
+                              {product.dimensions && <span>{product.dimensions}</span>}
+                              {product.sku && <span className="font-mono">{product.sku}</span>}
+                            </div>
+                          </div>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            (product.current_stock ?? 0) === 0
+                              ? 'bg-red-100 text-red-600'
+                              : (product.current_stock ?? 0) <= (product.reorder_level ?? 10)
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-green-100 text-green-700'
+                          }`}>
+                            {product.current_stock ?? 0}
+                          </span>
+                        </button>
+                      ));
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Step 2: Quantity */}
+          <div className="space-y-2">
+            <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Package size={12} />
+              Step 2: Quantity to Store
+              <span className="text-red-400">*</span>
+            </label>
+            <div className="relative">
+              <Package size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="number"
+                min="1"
+                placeholder="Enter quantity..."
+                value={shipmentData.quantityToStore}
+                onChange={e => setShipmentData(prev => ({ ...prev, quantityToStore: e.target.value }))}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+          </div>
+
+          {/* Step 3: Rack Selection */}
+          {shipmentData.selectedProduct && shipmentData.quantityToStore && (
+            <div className="space-y-2">
+              <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <Warehouse size={12} />
+                Step 3: Select Rack
+                <span className="text-red-400">*</span>
+              </label>
+              <select
+                value={shipmentData.targetRackId || ''}
+                onChange={e => {
+                  const rackId = e.target.value;
+                  setShipmentData(prev => ({ ...prev, targetRackId: rackId, targetPositionIds: [] }));
+                  if (rackId) {
+                    loadRackPositions({ id: rackId });
+                  }
+                }}
+                className="w-full cursor-pointer rounded-lg border border-slate-200 bg-slate-50 py-2.5 px-3 text-sm text-slate-900 outline-none transition focus:border-emerald-400 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+              >
+                <option value="">Select a rack...</option>
+                {getAvailableRacksForShipment().map(rack => {
+                  const available = Number(rack.capacity || 0) - Number(rack.current_stock || 0);
+                  return (
+                    <option key={rack.id} value={rack.id}>
+                      {rack.code} — {available} tires available
+                    </option>
+                  );
+                })}
+              </select>
+              {getAvailableRacksForShipment().length === 0 && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-700">
+                  <AlertCircle size={13} />
+                  No racks with available capacity
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Step 4: Position Selection (Multi-select with checkboxes) */}
+          {shipmentData.targetRackId && (
+            <div className="space-y-2">
+              <label className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span className="flex items-center gap-1.5">
+                  <MapPin size={12} />
+                  Step 4: Select Position(s)
+                  <span className="text-red-400">*</span>
+                </span>
+                {shipmentData.targetPositionIds.length > 0 && (
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                    {shipmentData.targetPositionIds.length} selected
+                  </span>
+                )}
+              </label>
+              {loadingPositions[shipmentData.targetRackId] ? (
+                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  <RefreshCw size={14} className="animate-spin" />
+                  Loading positions...
+                </div>
+              ) : (
+                <>
+                  {/* Calculate total capacity info */}
+                  {(() => {
+                    const availablePositions = getAvailablePositionsForRack(shipmentData.targetRackId);
+                    const selectedPositions = availablePositions.filter(p => 
+                      shipmentData.targetPositionIds.includes(p.id)
+                    );
+                    const totalSelectedCapacity = selectedPositions.reduce((sum, p) => {
+                      const currentQty = Number(p.current_stock || p.quantity || 0);
+                      const capacity = Number(p.capacity || 0);
+                      return sum + (capacity - currentQty);
+                    }, 0);
+                    const quantityNeeded = Number(shipmentData.quantityToStore) || 0;
+                    const isEnoughCapacity = totalSelectedCapacity >= quantityNeeded;
+                    
+                    return (
+                      <>
+                        {/* Capacity indicator */}
+                        {selectedPositions.length > 0 && (
+                          <div className={`rounded-lg border p-3 ${
+                            isEnoughCapacity 
+                              ? 'border-emerald-200 bg-emerald-50' 
+                              : 'border-amber-200 bg-amber-50'
+                          }`}>
+                            <div className="flex items-center justify-between">
+                              <span className={`text-xs font-medium ${
+                                isEnoughCapacity ? 'text-emerald-700' : 'text-amber-700'
+                              }`}>
+                                Selected capacity: {totalSelectedCapacity} tires
+                              </span>
+                              {!isEnoughCapacity && (
+                                <span className="text-[10px] font-bold text-amber-600">
+                                  Need {quantityNeeded - totalSelectedCapacity} more capacity
+                                </span>
+                              )}
+                            </div>
+                            {isEnoughCapacity && (
+                              <div className="mt-2 h-2 overflow-hidden rounded-full bg-emerald-200">
+                                <div
+                                  className="h-full bg-emerald-500 transition-all"
+                                  style={{
+                                    width: `${Math.min(100, (quantityNeeded / totalSelectedCapacity) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Position list with checkboxes */}
+                        <div className="max-h-60 space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          {availablePositions.length === 0 ? (
+                            <p className="flex items-center gap-1.5 text-xs text-amber-700">
+                              <AlertCircle size={13} />
+                              No available positions in this rack for this tire size
+                            </p>
+                          ) : (
+                            availablePositions.map(position => {
+                              const isSelected = shipmentData.targetPositionIds.includes(position.id);
+                              const currentQty = Number(position.current_stock || position.quantity || 0);
+                              const capacity = Number(position.capacity || 0);
+                              const available = capacity - currentQty;
+                              
+                              return (
+                                <label
+                                  key={position.id}
+                                  className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-all ${
+                                    isSelected
+                                      ? 'border-emerald-300 bg-emerald-50 shadow-sm'
+                                      : 'border-slate-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/30'
+                                  }`}
+                                >
+                                  {/* Checkbox */}
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={e => {
+                                      const checked = e.target.checked;
+                                      setShipmentData(prev => ({
+                                        ...prev,
+                                        targetPositionIds: checked
+                                          ? [...prev.targetPositionIds, position.id]
+                                          : prev.targetPositionIds.filter(id => id !== position.id),
+                                      }));
+                                    }}
+                                    className="h-4 w-4 cursor-pointer rounded border-slate-300 text-emerald-600 transition focus:ring-2 focus:ring-emerald-100"
+                                  />
+                                  
+                                  {/* Position info */}
+                                  <div className="flex-1">
+                                    <p className="font-mono text-xs font-bold text-slate-800">
+                                      {position.position_code || position.positionCode}
+                                    </p>
+                                    <p className="mt-0.5 text-[10px] text-slate-500">
+                                      Sec {position.section_number} · Shelf {position.shelf_number} · Sub {position.subsection_number}
+                                    </p>
+                                  </div>
+                                  
+                                  {/* Capacity badge */}
+                                  <div className="shrink-0 text-right">
+                                    <p className="text-xs font-bold text-emerald-700">
+                                      {available}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400">available</p>
+                                  </div>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                        
+                        {/* Helper text */}
+                        {availablePositions.length > 0 && (
+                          <p className="text-[11px] text-slate-500">
+                            💡 Select multiple positions to distribute {quantityNeeded} tires across them
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Summary */}
+          {shipmentData.selectedProduct && shipmentData.quantityToStore && shipmentData.targetRackId && shipmentData.targetPositionIds.length > 0 && (() => {
+            const selectedPositions = (rackPositions[shipmentData.targetRackId] || []).filter(p => 
+              shipmentData.targetPositionIds.includes(p.id)
+            );
+            const totalCapacity = selectedPositions.reduce((sum, p) => {
+              const currentQty = Number(p.current_stock || p.quantity || 0);
+              const capacity = Number(p.capacity || 0);
+              return sum + (capacity - currentQty);
+            }, 0);
+            
+            return (
+              <div className="rounded-xl border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-4">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-600">Assignment Summary</p>
+                <div className="space-y-1 text-sm text-emerald-800">
+                  <p><strong>Product:</strong> {shipmentData.selectedProduct.brand} {shipmentData.selectedProduct.model}</p>
+                  <p><strong>Quantity:</strong> {shipmentData.quantityToStore} tires</p>
+                  <p><strong>Rack:</strong> {locations.find(l => l.id === shipmentData.targetRackId)?.code}</p>
+                  <p><strong>Positions:</strong> {selectedPositions.length} position{selectedPositions.length > 1 ? 's' : ''} selected ({totalCapacity} total capacity)</p>
+                  {selectedPositions.length <= 3 ? (
+                    <ul className="ml-4 mt-1 list-disc space-y-0.5 text-xs">
+                      {selectedPositions.map(p => (
+                        <li key={p.id}>
+                          {p.position_code || p.positionCode} 
+                          <span className="ml-1 text-emerald-600">
+                            ({Number(p.capacity || 0) - Number(p.current_stock || p.quantity || 0)} available)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-emerald-600">
+                      Quantity will be distributed across selected positions automatically
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Actions */}
+          <div className="flex gap-3 border-t border-slate-200 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setShowReceiveModal(false);
+                setShipmentData({
+                  selectedProduct: null,
+                  quantityToStore: '',
+                  targetRackId: null,
+                  targetPositionIds: [],
+                });
+                setShipmentProductSearch('');
+              }}
+              className="flex-1 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAssignShipmentToLocation}
+              disabled={
+                receiving ||
+                !shipmentData.selectedProduct ||
+                !shipmentData.quantityToStore ||
+                !shipmentData.targetRackId ||
+                shipmentData.targetPositionIds.length === 0
+              }
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {receiving ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              ) : (
+                <Save size={15} />
+              )}
+              {receiving ? 'Storing...' : 'Store Shipment'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+
+      {/* =====================================================================
           TIRE ASSIGNMENT MODAL
       ===================================================================== */}
 
@@ -4060,6 +5141,13 @@ export default function WarehouseLocations() {
                 }
 
               </p>
+
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-100 bg-white/70 px-3 py-2">
+                <MapPin size={13} className="shrink-0 text-blue-500" />
+                <span className="text-[11px] font-medium text-blue-700">
+                  This exact Section → Shelf → Subsection is the assignment target.
+                </span>
+              </div>
 
             </div>
 
@@ -4420,7 +5508,9 @@ export default function WarehouseLocations() {
 
                 {positionSaving
                   ? 'Saving...'
-                  : 'Save Position'}
+                  : isPositionAvailable(selectedPosition)
+                  ? 'Assign Tire'
+                  : 'Update Assignment'}
 
               </button>
 
@@ -4432,6 +5522,240 @@ export default function WarehouseLocations() {
 
       </Modal>
 
+
+      {/* =====================================================================
+          SHIPMENT HISTORY MODAL
+      ===================================================================== */}
+
+      <Modal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        size="xl"
+        title={
+          <span className="flex items-center gap-2">
+            <History size={16} className="text-blue-500" />
+            Shipment History
+          </span>
+        }
+      >
+        <div className="space-y-4">
+
+          {/* Header Stats */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
+              <p className="text-[10px] font-semibold uppercase text-blue-600">Total Shipments</p>
+              <p className="text-2xl font-bold text-blue-700">{shipmentHistory.length}</p>
+            </div>
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-center">
+              <p className="text-[10px] font-semibold uppercase text-emerald-600">Total Tires Stored</p>
+              <p className="text-2xl font-bold text-emerald-700">
+                {shipmentHistory.reduce((sum, entry) => sum + entry.quantity, 0)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-center">
+              <p className="text-[10px] font-semibold uppercase text-violet-600">Positions Used</p>
+              <p className="text-2xl font-bold text-violet-700">
+                {shipmentHistory.reduce((sum, entry) => sum + entry.totalPositions, 0)}
+              </p>
+            </div>
+          </div>
+
+          {/* History Timeline */}
+          {shipmentHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50 py-12 text-center">
+              <History size={48} className="text-slate-300" />
+              <p className="mt-3 text-sm font-semibold text-slate-600">No shipment history yet</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Use "Receive & Place Shipment" to start tracking shipments
+              </p>
+            </div>
+          ) : (
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto pr-2">
+              {shipmentHistory.map((entry, index) => {
+                const timeAgo = formatTimeAgo(entry.timestamp);
+                const date = new Date(entry.timestamp);
+                
+                return (
+                  <div
+                    key={entry.id}
+                    className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+                  >
+                    {/* Entry Header */}
+                    <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50 px-4 py-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+                            <Package size={18} className="text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-800">
+                              Shipment #{shipmentHistory.length - index}
+                            </p>
+                            <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                              <Clock size={11} />
+                              <span>{timeAgo}</span>
+                              <span className="text-slate-300">•</span>
+                              <span>{date.toLocaleDateString()} {date.toLocaleTimeString()}</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Quick Stats Badge */}
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                            {entry.quantity} tires
+                          </span>
+                          <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700">
+                            {entry.totalPositions} pos
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Entry Details */}
+                    <div className="p-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        
+                        {/* Product Info */}
+                        <div>
+                          <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            <Car size={10} />
+                            Product
+                          </p>
+                          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                            <p className="text-sm font-bold text-blue-900">{entry.product.name}</p>
+                            <div className="mt-1 flex flex-wrap gap-2 text-xs text-blue-700">
+                              {entry.product.dimensions && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Tag size={9} />
+                                  {entry.product.dimensions}
+                                </span>
+                              )}
+                              {entry.product.sku && (
+                                <span className="font-mono opacity-70">{entry.product.sku}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Rack Info */}
+                        <div>
+                          <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            <Warehouse size={10} />
+                            Rack Location
+                          </p>
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <p className="font-mono text-sm font-bold text-slate-800">
+                              {entry.rack?.code}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {entry.rack?.name}
+                            </p>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* Positions List */}
+                      <div className="mt-4">
+                        <p className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                          <MapPin size={10} />
+                          Storage Positions ({entry.positions.length})
+                        </p>
+                        
+                        {entry.positions.length <= 5 ? (
+                          // Show all if 5 or fewer
+                          <div className="space-y-1.5">
+                            {entry.positions.map((pos, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2"
+                              >
+                                <span className="font-mono text-xs font-semibold text-emerald-800">
+                                  {pos.positionCode}
+                                </span>
+                                <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                                  +{pos.qtyStored}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          // Show first 3, then summary for rest
+                          <div className="space-y-1.5">
+                            {entry.positions.slice(0, 3).map((pos, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center justify-between rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2"
+                              >
+                                <span className="font-mono text-xs font-semibold text-emerald-800">
+                                  {pos.positionCode}
+                                </span>
+                                <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                                  +{pos.qtyStored}
+                                </span>
+                              </div>
+                            ))}
+                            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-center">
+                              <span className="text-xs font-medium text-slate-600">
+                                + {entry.positions.length - 3} more positions
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center justify-between border-t border-slate-200 pt-4">
+            {shipmentHistory.length > 0 && (
+              <button
+                onClick={() => {
+                  if (confirm('Clear all shipment history? This cannot be undone.')) {
+                    setShipmentHistory([]);
+                    showToast('Shipment history cleared', 'success');
+                  }
+                }}
+                className="text-xs font-medium text-red-600 transition-colors hover:text-red-700 hover:underline"
+              >
+                Clear History
+              </button>
+            )}
+            
+            <button
+              type="button"
+              onClick={() => setShowHistoryModal(false)}
+              className="ml-auto rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </div>
+
+        </div>
+      </Modal>
+
     </motion.div>
   );
+}
+
+
+/* ============================================================================
+   HELPER: Format Time Ago
+============================================================================ */
+
+function formatTimeAgo(timestamp) {
+  const now = new Date();
+  const then = new Date(timestamp);
+  const seconds = Math.floor((now - then) / 1000);
+  
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return then.toLocaleDateString();
 }

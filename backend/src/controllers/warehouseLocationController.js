@@ -328,10 +328,37 @@ export async function getStoragePositions(req, res) {
  *   total_quantity: 8
  * }
  */
+/**
+ * Update a specific storage position (assign/update tires)
+ * @route PUT /api/warehouse-locations/:id/positions/:positionId
+ * 
+ * Supports three formats:
+ * 
+ * 1. Single tire (legacy):
+ * { tire_size: "90/90-17", quantity: 8 }
+ * 
+ * 2. Multiple tire sizes (new - from WarehouseLocations.jsx):
+ * { 
+ *   tire_entries: [
+ *     { tire_size: "90/90-17", quantity: 5 },
+ *     { tire_size: "100/90-19", quantity: 3 }
+ *   ],
+ *   total_quantity: 8
+ * }
+ * 
+ * 3. Multiple products with IDs:
+ * { 
+ *   products: [
+ *     { product_id: "uuid", tire_size: "90/90-17", quantity: 5 },
+ *     { product_id: "uuid", tire_size: "100/90-19", quantity: 3 }
+ *   ],
+ *   total_quantity: 8
+ * }
+ */
 export async function updateStoragePosition(req, res) {
   try {
     const { id, positionId } = req.params;
-    const { tire_size, quantity, products, total_quantity } = req.body;
+    const { tire_size, quantity, products, total_quantity, tire_entries } = req.body;
 
     // Get the position
     const { data: position, error: positionError } = await supabaseAdmin
@@ -349,8 +376,46 @@ export async function updateStoragePosition(req, res) {
     let finalQuantity;
     let tireSizeDisplay;
 
-    // Handle multiple products (enhanced format)
-    if (products && Array.isArray(products)) {
+    // Handle multiple tire entries (new format from WarehouseLocations.jsx)
+    if (tire_entries && Array.isArray(tire_entries)) {
+      // Validate tire_entries array
+      if (tire_entries.length === 0) {
+        return res.status(400).json({ error: 'tire_entries array cannot be empty' });
+      }
+
+      // Calculate total quantity
+      finalQuantity = tire_entries.reduce((sum, entry) => sum + (parseInt(entry.quantity) || 0), 0);
+
+      // Validate total doesn't exceed capacity
+      if (finalQuantity > position.capacity) {
+        return res.status(400).json({ 
+          error: `Total quantity (${finalQuantity}) exceeds position capacity (${position.capacity})` 
+        });
+      }
+
+      // Validate each entry has tire_size
+      for (const entry of tire_entries) {
+        if (!entry.tire_size && finalQuantity > 0) {
+          return res.status(400).json({ 
+            error: 'All entries must have tire_size when quantity > 0' 
+          });
+        }
+      }
+
+      // Create display string
+      tireSizeDisplay = tire_entries.length === 1 
+        ? tire_entries[0].tire_size 
+        : `${tire_entries[0].tire_size} +${tire_entries.length - 1} more`;
+
+      updateData = {
+        current_stock: finalQuantity,
+        tire_size: tireSizeDisplay,
+        metadata: { tire_entries }, // Store full breakdown
+        status: finalQuantity === 0 ? 'empty' : 
+                finalQuantity >= position.capacity ? 'full' : 'available'
+      };
+
+    } else if (products && Array.isArray(products)) {
       // Validate products array
       if (products.length === 0) {
         return res.status(400).json({ error: 'products array cannot be empty' });

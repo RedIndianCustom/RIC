@@ -1,286 +1,309 @@
-# 🎯 WAREHOUSE RACK SYSTEM - TESTING GUIDE
+# Testing Guide: ShipmentRegistration Transformation
 
-## ✅ SETUP COMPLETE!
+## 🚀 Quick Start
 
-Your warehouse rack management system is now fully deployed and ready for testing!
+**Frontend is running at:** http://localhost:5174/
+
+### Prerequisites:
+1. ✅ Backend server running (port 5000)
+2. ✅ Frontend server running (port 5174)
+3. ✅ Logged in as user with shipment permissions
+4. ✅ Product catalog populated in database
 
 ---
 
-## 🌐 SERVERS RUNNING
+## 📋 **Test Scenarios**
 
-- **Backend:** `http://localhost:4000`
-- **Frontend:** `http://localhost:5174`
+### **Test 1: Create New Shipment with Product Picker**
 
----
-
-## 📋 TEST CHECKLIST
-
-### **Test 1: Verify Database Setup**
-
-Run this in Supabase SQL Editor: `VERIFY_WAREHOUSE_SETUP.sql`
+**Steps:**
+1. Navigate to **Shipments** page
+2. Click **"New Shipment"** button (emerald/green gradient)
+3. Fill in shipment details:
+   - Supplier: Select from dropdown
+   - Shipment Number: e.g., "SHIP-2026-001"
+   - Container Number: e.g., "CONT-12345"
+   - BL Number: e.g., "BL-67890"
+4. Click **"Add Product"** button in Product Breakdown section
+5. **Product Picker Modal opens** ✨
+6. Search for a product (type brand/model/size)
+7. Click on a product from the list
+8. Enter quantity in prompt (e.g., "100")
+9. **Product card appears** with details
+10. Click **Map Pin icon** on product card
+11. **Position Assignment Modal opens** ✨
+12. Select a rack from dropdown
+13. Check multiple positions (2-3 positions)
+14. Verify capacity summary shows correctly
+15. Click **"Confirm Assignment"**
+16. Verify positions appear in product card
+17. Add another product (repeat steps 4-16)
+18. Click **"Create Shipment"**
 
 **Expected Results:**
-- ✅ 1 warehouse (Main Warehouse - WH1)
-- ✅ 5 racks (RACK-1 through RACK-5)
-- ✅ 3,600 total positions
-- ✅ RACK-1 & RACK-2: Dual Sport ST 90/90-17
-- ✅ RACK-3, 4, 5: To Be Assigned
+- ✅ Product picker shows searchable catalog
+- ✅ Product card displays all details (brand, model, dimensions, SKU)
+- ✅ Position picker shows available positions with capacity bars
+- ✅ Capacity validation prevents over-assignment
+- ✅ Distribution auto-calculates across positions
+- ✅ Shipment creates successfully
 
 ---
 
-### **Test 2: Test Backend API Endpoints**
+### **Test 2: Edit Existing Legacy Shipment**
 
-Open browser console (F12) and run these:
+**Steps:**
+1. Find an **old shipment** (created before transformation)
+2. Click **Edit icon** on shipment card
+3. Observe product breakdown section
+4. Check if products have **"Legacy"** badge
+5. Click **Map Pin icon** on legacy product
+6. Assign positions using new UI
+7. Click **"Update Shipment"**
 
-```javascript
-// Test 1: Get warehouses
-fetch('http://localhost:4000/api/warehouses')
-  .then(r => r.json())
-  .then(d => console.log('Warehouses:', d));
+**Expected Results:**
+- ✅ Legacy products load correctly
+- ✅ Amber "Legacy" badge appears
+- ✅ Can assign positions to legacy products
+- ✅ Shipment updates to new format
+- ✅ No data loss during migration
 
-// Expected: { success: true, warehouses: [{ code: "WH1", name: "Main Warehouse", ... }] }
+---
 
-// Test 2: Get racks for WH1
-fetch('http://localhost:4000/api/racks?warehouseId=YOUR_WAREHOUSE_ID_HERE')
-  .then(r => r.json())
-  .then(d => console.log('Racks:', d));
+### **Test 3: Capacity Validation**
 
-// Expected: { success: true, racks: [5 racks] }
+**Steps:**
+1. Create new shipment with 1 product
+2. Enter quantity: **500 tires**
+3. Click Map Pin to assign positions
+4. Select rack
+5. Check only 1-2 positions (with limited capacity)
+6. Try to confirm assignment
 
-// Test 3: Get rack locations
-fetch('http://localhost:4000/api/rack-locations?rackId=YOUR_RACK_ID_HERE')
-  .then(r => r.json())
-  .then(d => console.log('Locations:', d));
+**Expected Results:**
+- ✅ Modal shows capacity summary
+- ✅ Warning appears: "Short by: X tires"
+- ✅ Cannot confirm (button disabled or error shown)
+- ✅ Must select more positions to proceed
 
-// Expected: { success: true, locations: [720 positions] }
+---
+
+### **Test 4: Multi-Product Shipment**
+
+**Steps:**
+1. Create new shipment
+2. Add **3 different products**:
+   - Product A: 100 tires → Assign to Rack 1 (3 positions)
+   - Product B: 150 tires → Assign to Rack 2 (4 positions)
+   - Product C: 80 tires → Assign to Rack 1 (2 positions)
+3. Verify each product card shows:
+   - Product details
+   - Total quantity
+   - Assigned positions list
+4. Check total summary shows **330 tires**
+5. Submit shipment
+
+**Expected Results:**
+- ✅ All products display correctly
+- ✅ Each has unique position assignments
+- ✅ Total quantity auto-calculates
+- ✅ No position conflicts
+- ✅ Shipment creates successfully
+
+---
+
+### **Test 5: Visual Theme Consistency**
+
+**Steps:**
+1. Navigate through Shipments page
+2. Check all elements for emerald/green theme:
+   - Page header gradient
+   - "New Shipment" button
+   - Stat cards
+   - Form modal header
+   - Product cards
+   - Capacity bars (green for available)
+   - Focus rings on inputs
+   - Action buttons
+
+**Expected Results:**
+- ✅ No teal/cyan colors remain
+- ✅ Consistent emerald/green theme
+- ✅ Matches WarehouseLocations page
+- ✅ Professional appearance
+
+---
+
+### **Test 6: Position Capacity Indicators**
+
+**Steps:**
+1. Open position assignment modal
+2. Select a rack with mixed capacity positions:
+   - Some positions 0-50% full (should show green bar)
+   - Some positions 70-89% full (should show amber bar)
+   - Some positions 90-100% full (should show red bar)
+3. Check each position card
+
+**Expected Results:**
+- ✅ Green bars for low utilization
+- ✅ Amber bars for medium utilization
+- ✅ Red bars for high utilization
+- ✅ Capacity text shows "X / Y" format
+- ✅ "Available" badges show correct count
+
+---
+
+### **Test 7: Search and Filter Products**
+
+**Steps:**
+1. Click "Add Product"
+2. Product picker opens
+3. Test search functionality:
+   - Search by brand: "Michelin"
+   - Search by model: "Dual Sport"
+   - Search by size: "90/90-17"
+   - Search by SKU: "MCH-DS"
+4. Verify results filter in real-time
+
+**Expected Results:**
+- ✅ Search updates instantly (no lag)
+- ✅ Matches on all fields (brand, model, dimensions, SKU)
+- ✅ Case-insensitive matching
+- ✅ Shows "No products found" if no matches
+
+---
+
+### **Test 8: Remove Products and Positions**
+
+**Steps:**
+1. Create shipment with 2 products (both with positions assigned)
+2. Click **Trash icon** on first product
+3. Verify product removed
+4. Check total quantity updated
+5. Save shipment with remaining product
+
+**Expected Results:**
+- ✅ Product card removes smoothly
+- ✅ Total quantity recalculates
+- ✅ No errors in console
+- ✅ Shipment saves correctly
+
+---
+
+### **Test 9: Mobile Responsiveness**
+
+**Steps:**
+1. Open browser dev tools (F12)
+2. Toggle device toolbar (Ctrl+Shift+M)
+3. Test on different screen sizes:
+   - Mobile (375px)
+   - Tablet (768px)
+   - Desktop (1920px)
+4. Check all modals and forms
+
+**Expected Results:**
+- ✅ Modals resize appropriately
+- ✅ Product cards stack on mobile
+- ✅ Position grid scrolls horizontally if needed
+- ✅ Touch interactions work
+- ✅ No horizontal overflow
+
+---
+
+### **Test 10: Error Handling**
+
+**Steps:**
+1. Try to submit shipment with **no products**
+2. Try to submit shipment with **products but no positions assigned**
+3. Try to assign more quantity than available capacity
+4. Test with network disconnected (API failure)
+
+**Expected Results:**
+- ✅ Error message: "Please add at least one product"
+- ✅ Error message: "Product X has no positions assigned"
+- ✅ Error message: "Cannot store all X tires"
+- ✅ Graceful handling of API failures
+- ✅ User can retry after fixing issues
+
+---
+
+## 🐛 **Known Issues to Watch**
+
+1. **Product Search Performance**: With 1000+ products, search may lag
+2. **Position Loading**: First time loading rack positions may take 1-2 seconds
+3. **Modal Animations**: May stutter on slower devices
+4. **Large Shipments**: 10+ products may make form scrolling cumbersome
+
+---
+
+## 📊 **What to Check in Browser Console**
+
+### **Good Signs:**
+```
+✅ Shipment has X products - they should load into the form
+✅ Product breakdown content: [...]
+✅ Setting formData to: {...}
+```
+
+### **Bad Signs (Should NOT Appear):**
+```
+❌ Warning: Shipment has NO product_breakdown or it is empty
+❌ TypeError: Cannot read property 'assigned_positions' of undefined
+❌ Error loading products: 404
+❌ Error loading positions: 500
 ```
 
 ---
 
-### **Test 3: Generate Barcodes with Warehouse Location**
+## 🎯 **Success Indicators**
 
-**As Operational Staff or Manager:**
+After testing, you should confirm:
 
-1. **Login** to `http://localhost:5174`
-2. **Navigate** to "Generate Barcodes" page
-3. **Select** a product, batch, and shipment
-4. **Scroll down** to "Warehouse Location Assignment" section
-5. **Select Warehouse:** Should see "Main Warehouse (WH1)"
-6. **Select Rack:** Should see RACK-1 through RACK-5
-7. **Select Position:** Should see positions like "WH1-RACK-1-S1-SEC1-SUB1"
-8. **Or use "Auto-assign"** checkbox
-9. **Generate** barcodes
-10. **Verify** success message
-
-**Expected Result:**
-- ✅ Barcodes generated successfully
-- ✅ Location assigned to inventory units
-- ✅ Rack capacity updated in database
+- ✅ Product picker modal opens and closes smoothly
+- ✅ Product search filters correctly
+- ✅ Products add to breakdown with all details
+- ✅ Position assignment modal shows capacity bars
+- ✅ Multi-select positions works with checkboxes
+- ✅ Distribution calculates correctly
+- ✅ Total quantity auto-updates
+- ✅ Validation prevents invalid submissions
+- ✅ Legacy shipments migrate seamlessly
+- ✅ Emerald/green theme consistent throughout
+- ✅ No console errors
+- ✅ Shipments save to database correctly
 
 ---
 
-### **Test 4: Warehouse Staff Scanning Page**
+## 🔧 **Troubleshooting**
 
-**As Warehouse Staff:**
+### **Problem: Product picker is empty**
+**Solution:** Check `/products` API endpoint returns data
 
-1. **Navigate** to "Scan Products" (under Warehouse menu)
-2. **Enter a barcode value** that you just generated
-3. **Click "Scan"**
+### **Problem: Position modal shows no positions**
+**Solution:** Verify `/warehouse-locations/:id/positions` API works
 
-**Expected Result:**
-- ✅ Shows product information
-- ✅ Shows inventory unit details
-- ✅ Shows warehouse location:
-  - Warehouse: Main Warehouse (WH1)
-  - Rack: RACK-X
-  - Position: WH1-RACK-X-SX-SECX-SUBX
-- ✅ Shows batch information
-- ✅ Shows shipment information
-- ✅ Shows supplier information
-- ✅ **READ-ONLY** (no edit buttons)
+### **Problem: Colors still teal/cyan**
+**Solution:** Clear browser cache and hard reload (Ctrl+Shift+R)
+
+### **Problem: Distribution fails**
+**Solution:** Check capacity values are numbers, not strings
+
+### **Problem: Legacy products don't load**
+**Solution:** Check `migrateProductBreakdown()` function handles null/undefined
 
 ---
 
-### **Test 5: Relocate Inventory**
+## 📞 **Support**
 
-**As Operational Staff or Manager:**
-
-1. **Navigate** to "Relocate Inventory" (under Inventory menu)
-2. **Scan barcode** or enter barcode value
-3. **Verify** current location is shown
-4. **Select new warehouse** (if multiple exist)
-5. **Select new rack**
-6. **Select new position**
-7. **Select reason** (e.g., "Rack Full")
-8. **Add notes** (optional)
-9. **Click "Relocate"**
-
-**Expected Result:**
-- ✅ Relocation successful
-- ✅ Old rack capacity decremented
-- ✅ New rack capacity incremented
-- ✅ Relocation history recorded
-- ✅ inventory_units.rack_location_id updated
-- ✅ Can scan again to verify new location
+If you encounter issues:
+1. Check browser console for errors
+2. Verify backend API is responding
+3. Test with different products/positions
+4. Clear browser cache
+5. Review SHIPMENT_REGISTRATION_TRANSFORMATION.md for implementation details
 
 ---
 
-### **Test 6: Traceability Page Shows Location**
+**Happy Testing! 🎉**
 
-1. **Navigate** to "Trace Products" page
-2. **Scan a barcode** with warehouse location
-3. **Verify** the "Inventory Unit" section shows:
-   - ✅ Warehouse Location
-   - ✅ Rack, Shelf, Section, Subsection
-   - ✅ Assigned Date
-   - ✅ Assigned By (user who generated barcode)
-
----
-
-### **Test 7: Rack Capacity Tracking**
-
-**Generate many barcodes to test capacity:**
-
-1. Generate 15 barcodes for same position (subsection)
-2. **Expected:** Position status changes to "full"
-3. Generate 720 barcodes for same rack
-4. **Expected:** Rack status changes to "full"
-5. Try to relocate to full rack
-6. **Expected:** Should show "No available space" or suggest alternative
-
----
-
-### **Test 8: Role-Based Access Control**
-
-**Test as Warehouse Staff (read-only):**
-- ✅ Can scan products
-- ✅ Can view location information
-- ❌ Cannot generate barcodes with location
-- ❌ Cannot relocate inventory
-
-**Test as Operational Staff:**
-- ✅ Can generate barcodes with location
-- ✅ Can relocate inventory
-- ✅ Can scan products
-
-**Test as Manager:**
-- ✅ Can generate barcodes with location
-- ✅ Can relocate inventory
-- ✅ Can scan products
-- ✅ Full access to all features
-
----
-
-## 🐛 COMMON ISSUES & SOLUTIONS
-
-### **Issue: Warehouse dropdown is empty**
-**Cause:** SQL script not run or failed  
-**Fix:** Verify in Supabase that warehouse_locations has data:
-```sql
-SELECT * FROM warehouse_locations;
-```
-
-### **Issue: Rack dropdown is empty**
-**Cause:** Racks not created or warehouse ID mismatch  
-**Fix:** Verify racks exist:
-```sql
-SELECT * FROM rack_configurations;
-```
-
-### **Issue: 403 Forbidden on relocation**
-**Cause:** User role is warehouse_staff (read-only)  
-**Fix:** Login as operational_staff or manager
-
-### **Issue: "Position already full"**
-**Cause:** Position capacity reached (15 tires)  
-**Fix:** Select different position or use auto-assign
-
-### **Issue: Backend API returns error**
-**Cause:** Check backend console for errors  
-**Fix:** View terminal output or check logs
-
----
-
-## 📊 DATABASE VERIFICATION QUERIES
-
-Run these in Supabase to verify data integrity:
-
-```sql
--- Check warehouse data
-SELECT * FROM warehouse_locations;
-
--- Check racks
-SELECT rack_code, designated_size, total_capacity, current_count, status 
-FROM rack_configurations;
-
--- Check inventory units with location
-SELECT 
-  iu.unit_code,
-  iu.position_code,
-  iu.rack_code,
-  rl.position_code as actual_position,
-  rc.rack_code as actual_rack
-FROM inventory_units iu
-LEFT JOIN rack_locations rl ON rl.id = iu.rack_location_id
-LEFT JOIN rack_configurations rc ON rc.id = rl.rack_id
-WHERE iu.rack_location_id IS NOT NULL
-LIMIT 10;
-
--- Check relocation history
-SELECT 
-  from_position_code,
-  to_position_code,
-  reason,
-  relocated_at
-FROM inventory_relocation_history
-ORDER BY relocated_at DESC
-LIMIT 10;
-```
-
----
-
-## ✨ SUCCESS CRITERIA
-
-**System is fully functional when:**
-- ✅ Backend running without errors
-- ✅ Frontend running without errors
-- ✅ Warehouse dropdown populates
-- ✅ Rack dropdown populates when warehouse selected
-- ✅ Position dropdown shows available positions
-- ✅ Barcodes generated with location assignment
-- ✅ Warehouse staff can scan (read-only)
-- ✅ Operational staff can relocate inventory
-- ✅ Rack capacity updates automatically
-- ✅ Relocation history is tracked
-- ✅ Traceability page shows location data
-
----
-
-## 🎉 YOU'RE READY TO TEST!
-
-1. Open `http://localhost:5174` in your browser
-2. Login as **Operational Staff** or **Manager**
-3. Go to "Generate Barcodes"
-4. Look for the new "Warehouse Location Assignment" section
-5. Start testing! 🚀
-
----
-
-## 📞 NEED HELP?
-
-If you encounter any issues:
-1. Check browser console (F12) for frontend errors
-2. Check backend terminal for API errors
-3. Run verification queries in Supabase
-4. Check that all tables exist and have data
-
-**Files to reference:**
-- `FIXES_APPLIED.md` - List of all fixes
-- `VERIFY_WAREHOUSE_SETUP.sql` - Database verification
-- `000_DIAGNOSE_WAREHOUSE_TABLE.sql` - Table structure diagnosis
-
----
-
-**Status:** ✅ READY FOR TESTING  
-**Last Updated:** August 21, 2024  
-**Next Step:** Start testing the features above!
+The transformation is complete and ready for quality assurance testing. All features have been implemented according to the plan.
