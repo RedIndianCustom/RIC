@@ -153,14 +153,12 @@ export async function createShipment(req, res) {
       expected_quantity,
       expected_arrival_date,
       notes,
-      product_breakdown,
-      assigned_location_id   // ← NEW
+      product_breakdown
     } = req.body;
 
     console.log('📝 Creating shipment...');
     console.log('📦 Product breakdown received:', product_breakdown);
     console.log('📊 Product count:', product_breakdown?.length);
-    console.log('📍 Assigned location:', assigned_location_id);
 
     // Validation
     if (!supplier_id) {
@@ -187,8 +185,7 @@ export async function createShipment(req, res) {
         expected_arrival_date,
         status: 'PENDING',
         notes,
-        product_breakdown: product_breakdown || [],
-        assigned_location_id: assigned_location_id || null   // ← NEW
+        product_breakdown: product_breakdown || []
       })
       .select(`
         *,

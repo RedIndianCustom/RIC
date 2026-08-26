@@ -216,14 +216,13 @@ export default function ShipmentRegistration() {
       // Position must have available capacity
       if (currentQty >= capacity) return false;
       
-      // If position is empty, it's available
-      if (!positionTireSize && currentQty === 0) return true;
+      // If position is empty (no tire size assigned), it's available
+      if (!positionTireSize) return true;
       
-      // If position has a tire size, it must match
-      if (positionTireSize && tireSize) {
-        return positionTireSize === tireSize;
-      }
+      // If position has a tire size, it must match the product's tire size
+      if (tireSize && positionTireSize === tireSize) return true;
       
+      // Position has a different tire size - not compatible
       return false;
     });
   };
@@ -317,7 +316,9 @@ export default function ShipmentRegistration() {
       const calculatedQuantity = getTotalBreakdownQty();
       const submissionData = {
         ...formData,
-        expected_quantity: calculatedQuantity || formData.expected_quantity
+        expected_quantity: calculatedQuantity || formData.expected_quantity,
+        // Convert empty string to null for date field
+        expected_arrival_date: formData.expected_arrival_date || null
       };
       
       console.log('💾 Saving shipment...');
