@@ -35,6 +35,7 @@ export default function ShipmentRegistration() {
   // Position picker state
   const [showPositionModal, setShowPositionModal] = useState(false);
   const [editingProductIndex, setEditingProductIndex] = useState(null);
+  const [selectedWarehouseCode, setSelectedWarehouseCode] = useState(null); // NEW: Warehouse selection
   const [selectedRackId, setSelectedRackId] = useState(null);
   const [selectedPositionIds, setSelectedPositionIds] = useState([]);
   const [rackPositions, setRackPositions] = useState({});
@@ -348,6 +349,15 @@ export default function ShipmentRegistration() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Validation: Check if Expected Arrival Date is filled
+    if (!formData.expected_arrival_date) {
+      setAlert({ 
+        type: 'error', 
+        message: '⚠️ Expected Arrival Date is required! Please select a date before creating the shipment.' 
+      });
+      return;
+    }
+    
     try {
       setLoading(true);
       
@@ -588,6 +598,7 @@ export default function ShipmentRegistration() {
     // Close modal
     setShowPositionModal(false);
     setEditingProductIndex(null);
+    setSelectedWarehouseCode(null); // Reset warehouse selection
     setSelectedRackId(null);
     setSelectedPositionIds([]);
     
@@ -1086,13 +1097,22 @@ export default function ShipmentRegistration() {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">Expected Arrival Date</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                          Expected Arrival Date <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="date"
+                          required
                           value={formData.expected_arrival_date}
                           onChange={(e) => setFormData({ ...formData, expected_arrival_date: e.target.value })}
                           className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                         />
+                        {!formData.expected_arrival_date && (
+                          <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            This field is required
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1439,33 +1459,80 @@ export default function ShipmentRegistration() {
                 </div>
 
                 <div className="p-6 overflow-y-auto max-h-[calc(85vh-200px)]">
-                  {/* Step 1: Select Rack */}
+                  {/* Step 1: Select Warehouse */}
                   <div className="mb-6">
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Step 1: Select Rack
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">
+                      <span className="flex items-center gap-2">
+                        <Warehouse className="h-4 w-4 text-emerald-600" />
+                        Step 1: Select Warehouse
+                      </span>
                     </label>
-                    <select
-                      value={selectedRackId || ''}
-                      onChange={(e) => {
-                        const rackId = e.target.value;
-                        setSelectedRackId(rackId);
-                        setSelectedPositionIds([]);
-                        if (rackId) {
-                          loadRackPositions(rackId);
-                        }
-                      }}
-                      className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                    >
-                      <option value="">Choose a rack...</option>
-                      {racks.map(rack => (
-                        <option key={rack.id} value={rack.id}>
-                          {rack.warehouse_name} - {rack.rack_code}
-                        </option>
+                    <div className="grid grid-cols-2 gap-3">
+                      {['WH1', 'WH2'].map((whCode) => (
+                        <button
+                          key={whCode}
+                          type="button"
+                          onClick={() => {
+                            setSelectedWarehouseCode(whCode);
+                            setSelectedRackId(null);
+                            setSelectedPositionIds([]);
+                          }}
+                          className={`flex items-center justify-center gap-3 px-4 py-4 rounded-xl border-2 transition-all ${
+                            selectedWarehouseCode === whCode
+                              ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-md'
+                              : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50/50'
+                          }`}
+                        >
+                          <Warehouse className={`h-5 w-5 ${selectedWarehouseCode === whCode ? 'text-emerald-600' : 'text-slate-400'}`} />
+                          <span className="font-bold">{whCode}</span>
+                          {selectedWarehouseCode === whCode && (
+                            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                          )}
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   </div>
 
-                  {/* Step 2: Rack Occupancy Overview */}
+                  {/* Step 2: Select Rack (only show if warehouse selected) */}
+                  {selectedWarehouseCode && (
+                    <div className="mb-6">
+                      <label className="block text-sm font-semibold text-slate-700 mb-3">
+                        <span className="flex items-center gap-2">
+                          <Package className="h-4 w-4 text-emerald-600" />
+                          Step 2: Choose a Rack
+                        </span>
+                      </label>
+                      <select
+                        value={selectedRackId || ''}
+                        onChange={(e) => {
+                          const rackId = e.target.value;
+                          setSelectedRackId(rackId);
+                          setSelectedPositionIds([]);
+                          if (rackId) {
+                            loadRackPositions(rackId);
+                          }
+                        }}
+                        className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                      >
+                        <option value="">Choose a rack...</option>
+                        {racks
+                          .filter(rack => rack.rack_code.startsWith(selectedWarehouseCode))
+                          .map(rack => (
+                            <option key={rack.id} value={rack.id}>
+                              {rack.rack_code}
+                            </option>
+                          ))}
+                      </select>
+                      {racks.filter(rack => rack.rack_code.startsWith(selectedWarehouseCode)).length === 0 && (
+                        <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          No racks found for {selectedWarehouseCode}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Step 3: Rack Occupancy Overview */}
                   {selectedRackId && !loadingPositions[selectedRackId] && (() => {
                     const occupancyMap = getOccupiedPositionsSummary(selectedRackId);
                     const hasOccupiedPositions = Object.keys(occupancyMap).length > 0;
@@ -1512,11 +1579,14 @@ export default function ShipmentRegistration() {
                     );
                   })()}
 
-                  {/* Step 3: Select Positions */}
+                  {/* Step 4: Select Positions */}
                   {selectedRackId && (
                     <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-2">
-                        {getOccupiedPositionsSummary(selectedRackId) && Object.keys(getOccupiedPositionsSummary(selectedRackId)).length > 0 ? 'Step 3' : 'Step 2'}: Select Positions (Multiple)
+                      <label className="block text-sm font-semibold text-slate-700 mb-3">
+                        <span className="flex items-center gap-2">
+                          <MapPin className="h-4 w-4 text-emerald-600" />
+                          {getOccupiedPositionsSummary(selectedRackId) && Object.keys(getOccupiedPositionsSummary(selectedRackId)).length > 0 ? 'Step 4' : 'Step 3'}: Select Positions (Multiple)
+                        </span>
                       </label>
                       
                       {loadingPositions[selectedRackId] ? (

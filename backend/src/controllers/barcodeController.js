@@ -9,6 +9,7 @@
 import { supabaseAdmin } from '../config/supabase.js';
 import {
   createBarcodes,
+  createBarcodesFromBatchPositions,
   getBarcodes,
   getTraceability,
   deactivateBarcode
@@ -20,11 +21,20 @@ import {
  * 
  * Request body:
  * {
+ *   batchId: "uuid", // Required
+ *   // Optional legacy fields for backward compatibility:
  *   productId: "uuid",
- *   batchId: "uuid",
  *   shipmentId: "uuid",
- *   quantity: 1
+ *   quantity: 1,
+ *   warehouseId: "uuid",
+ *   rackId: "uuid",
+ *   positionCode: "WH1-R05-RK05-S01-SH05-SUB01"
  * }
+ * 
+ * NEW BEHAVIOR:
+ * - If batch has metadata.products_with_positions, generates barcodes for each
+ *   product/position combination
+ * - If no metadata, falls back to legacy single-product mode
  */
 export async function createBarcodeController(req, res) {
   try {
@@ -42,39 +52,81 @@ export async function createBarcodeController(req, res) {
       positionCode
     } = req.body;
 
+    if (!batchId) {
+      return res.status(400).json({
+        success: false,
+        error: 'batchId is required'
+      });
+    }
+
     console.log('📦 Barcode generation request:', {
-      productId,
       batchId,
+      productId,
       shipmentId,
       quantity,
       warehouseId,
       rackId,
-      rackLocationId,
-      shelfNumber,
-      sectionNumber,
-      subsectionNumber,
       positionCode
     });
 
-    const result = await createBarcodes({
-      productId,
-      batchId,
-      shipmentId,
-      quantity: Number(quantity),
-      warehouseId,
-      rackId,
-      rackLocationId,
-      shelfNumber,
-      sectionNumber,
-      subsectionNumber,
-      positionCode
-    });
+    // Fetch batch to check for metadata with assigned positions
+    const { data: batch, error: batchError } = await supabaseAdmin
+      .from('batches')
+      .select('id, batch_number, shipment_id, metadata')
+      .eq('id', batchId)
+      .single();
 
-    return res.status(201).json({
-      success: true,
-      message: `${result.barcodes.length} barcode(s) generated successfully`,
-      ...result
-    });
+    if (batchError || !batch) {
+      return res.status(404).json({
+        success: false,
+        error: 'Batch not found'
+      });
+    }
+
+    // Check if batch has products with assigned positions
+    const hasAssignedPositions = batch.metadata?.products_with_positions?.length > 0;
+
+    if (hasAssignedPositions) {
+      console.log('✅ Batch has assigned positions - generating barcodes for each position');
+      
+      // Generate barcodes for all products and their positions
+      const result = await createBarcodesFromBatchPositions({
+        batchId: batch.id,
+        batchNumber: batch.batch_number,
+        shipmentId: batch.shipment_id,
+        productsWithPositions: batch.metadata.products_with_positions,
+        warehouseCode: batch.metadata.warehouse_code
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: `${result.totalBarcodes} barcode(s) generated for ${result.totalProducts} product(s) across ${result.totalPositions} position(s)`,
+        ...result
+      });
+    } else {
+      console.log('ℹ️ No assigned positions - using legacy single-product mode');
+      
+      // Legacy mode: generate barcodes for a single product
+      const result = await createBarcodes({
+        productId: productId || batch.product_id,
+        batchId: batch.id,
+        shipmentId: shipmentId || batch.shipment_id,
+        quantity: Number(quantity),
+        warehouseId,
+        rackId,
+        rackLocationId,
+        shelfNumber,
+        sectionNumber,
+        subsectionNumber,
+        positionCode
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: `${result.barcodes.length} barcode(s) generated successfully`,
+        ...result
+      });
+    }
   } catch (error) {
     console.error('❌ Barcode generation error:', error);
     return res.status(400).json({

@@ -52,6 +52,167 @@ async function getNextBarcodeSequence() {
 }
 
 /**
+ * Create barcodes from batch metadata with assigned positions
+ * Loops through each product and each position, generating barcodes
+ * with the exact position code embedded in the barcode
+ * 
+ * @param {Object} params
+ * @param {string} params.batchId - Batch UUID
+ * @param {string} params.batchNumber - Batch number
+ * @param {string} params.shipmentId - Shipment UUID
+ * @param {Array} params.productsWithPositions - Products with assigned_positions arrays
+ * @param {string} params.warehouseCode - Warehouse code (e.g., "WH1")
+ * @returns {Object} Summary of generated barcodes
+ */
+export async function createBarcodesFromBatchPositions({
+  batchId,
+  batchNumber,
+  shipmentId,
+  productsWithPositions,
+  warehouseCode
+}) {
+  console.log('📦 Starting barcode generation from batch positions...');
+  console.log(`   Batch: ${batchNumber}`);
+  console.log(`   Warehouse: ${warehouseCode}`);
+  console.log(`   Products: ${productsWithPositions.length}`);
+
+  const allGeneratedBarcodes = [];
+  let totalPositions = 0;
+
+  // Fetch warehouse by code
+  const { data: warehouse, error: warehouseError } = await supabaseAdmin
+    .from('warehouses')
+    .select('id, code, name')
+    .eq('code', warehouseCode)
+    .single();
+
+  if (warehouseError) {
+    console.warn(`⚠️ Warehouse ${warehouseCode} not found:`, warehouseError);
+  }
+
+  const warehouseId = warehouse?.id;
+
+  // Loop through each product
+  for (const product of productsWithPositions) {
+    console.log(`\n🔧 Processing product: ${product.product_name}`);
+    console.log(`   Product ID: ${product.product_id}`);
+    console.log(`   Assigned Positions: ${product.assigned_positions?.length || 0}`);
+
+    if (!product.assigned_positions || product.assigned_positions.length === 0) {
+      console.log(`   ⚠️ No assigned positions for this product - skipping`);
+      continue;
+    }
+
+    // Loop through each assigned position
+    for (const position of product.assigned_positions) {
+      const positionCode = position.position_code;
+      const positionQuantity = position.quantity;
+
+      console.log(`\n   📍 Position: ${positionCode}`);
+      console.log(`      Quantity: ${positionQuantity}`);
+
+      // Parse position code to extract rack and hierarchical location
+      // Format: WH1-R05-RK05-S01-SH05-SUB01
+      const positionParts = positionCode.split('-');
+      let rackNumber = null;
+      let shelfNumber = null;
+      let sectionNumber = null;
+      let subsectionNumber = null;
+
+      if (positionParts.length >= 6) {
+        rackNumber = parseInt(positionParts[1].replace('R', ''));
+        shelfNumber = parseInt(positionParts[4].replace('SH', ''));
+        sectionNumber = parseInt(positionParts[3].replace('S', ''));
+        subsectionNumber = parseInt(positionParts[5].replace('SUB', ''));
+      }
+
+      // Find rack by parsing position code and looking up in warehouse_locations
+      // Position code format: WH1-R05-RK05-S01-SH05-SUB01
+      // We need to find the warehouse_location that matches this rack
+      let rackLocationId = null;
+      let rackCode = null;
+      
+      if (warehouseId && positionParts.length >= 6) {
+        // Extract rack code from position: "WH1-R05-RK05"
+        const warehousePrefix = positionParts[0]; // "WH1"
+        const rowPart = positionParts[1]; // "R05"
+        const rackPart = positionParts[2]; // "RK05"
+        const expectedRackCode = `${warehousePrefix}-${rowPart}-${rackPart}`;
+        
+        console.log(`      🔍 Looking for rack: ${expectedRackCode}`);
+        
+        const { data: location, error: locationError } = await supabaseAdmin
+          .from('warehouse_locations')
+          .select('id, code')
+          .eq('code', expectedRackCode)
+          .single();
+
+        if (locationError) {
+          console.warn(`      ⚠️ Rack ${expectedRackCode} not found in warehouse_locations`);
+        } else if (location) {
+          rackLocationId = location.id;
+          rackCode = location.code;
+          console.log(`      ✅ Found warehouse location: ${rackCode}`);
+        }
+      }
+
+      try {
+        // Generate barcodes for this position's quantity
+        const result = await createBarcodes({
+          productId: product.product_id,
+          batchId,
+          shipmentId,
+          quantity: positionQuantity,
+          warehouseId,
+          rackLocationId, // Pass warehouse_location ID instead of rack_configuration ID
+          shelfNumber,
+          sectionNumber,
+          subsectionNumber,
+          positionCode
+        });
+
+        console.log(`      ✅ Generated ${result.barcodes.length} barcode(s) for position ${positionCode}`);
+
+        // Collect all barcodes
+        allGeneratedBarcodes.push(...result.barcodes);
+        totalPositions++;
+      } catch (err) {
+        console.error(`      ❌ Failed to generate barcodes for position ${positionCode}:`, err.message);
+        throw err; // Fail entire operation if any position fails
+      }
+    }
+  }
+
+  console.log(`\n✅ Barcode generation complete!`);
+  console.log(`   Total Products: ${productsWithPositions.length}`);
+  console.log(`   Total Positions: ${totalPositions}`);
+  console.log(`   Total Barcodes: ${allGeneratedBarcodes.length}`);
+
+  return {
+    success: true,
+    batchId,
+    batchNumber,
+    shipmentId,
+    warehouseCode,
+    totalProducts: productsWithPositions.length,
+    totalPositions,
+    totalBarcodes: allGeneratedBarcodes.length,
+    barcodes: allGeneratedBarcodes,
+    summary: {
+      batch_number: batchNumber,
+      warehouse_code: warehouseCode,
+      products_processed: productsWithPositions.length,
+      positions_processed: totalPositions,
+      total_barcodes: allGeneratedBarcodes.length,
+      barcode_range: allGeneratedBarcodes.length > 0 ? {
+        first: allGeneratedBarcodes[0].barcode_value,
+        last: allGeneratedBarcodes[allGeneratedBarcodes.length - 1].barcode_value
+      } : null
+    }
+  };
+}
+
+/**
  * Main service function: Create barcodes with complete traceability
  * Uses transaction-safe PostgreSQL RPC for atomic operation
  * 
@@ -130,81 +291,61 @@ export async function createBarcodes({
   // ---------------------------------------------------------
   // 3. ASSIGN WAREHOUSE LOCATIONS (if provided)
   // ---------------------------------------------------------
-  if (warehouseId && rackId) {
-    console.log(`📍 Assigning warehouse and rack to ${data.barcodes.length} inventory units...`);
+  if (warehouseId) {
+    console.log(`📍 Assigning warehouse location to ${data.barcodes.length} inventory units...`);
     
     try {
-      // Get rack details
-      const { data: rack, error: rackError } = await supabaseAdmin
-        .from('rack_configurations')
-        .select('id, rack_code, rack_number, warehouse_id')
-        .eq('id', rackId)
-        .single();
+      // Get all inventory unit IDs from the barcodes
+      const inventoryUnitIds = data.barcodes.map(b => b.inventory_unit_id);
 
-      if (rackError) {
-        console.error('⚠️ Failed to fetch rack:', rackError);
-      } else if (rack) {
-        // Get all inventory unit IDs from the barcodes
-        const inventoryUnitIds = data.barcodes.map(b => b.inventory_unit_id);
+      // Prepare update data with hierarchical location fields
+      const updateData = {
+        warehouse_id: warehouseId,
+        assigned_at: new Date().toISOString()
+      };
 
-        // Prepare update data with hierarchical location fields
-        const updateData = {
-          warehouse_id: warehouseId,
-          rack: rack.rack_code,  // Store rack code in existing 'rack' column
-          assigned_at: new Date().toISOString()
-        };
+      // If rackLocationId is provided, get the rack code from warehouse_locations
+      if (rackLocationId) {
+        const { data: location, error: locationError } = await supabaseAdmin
+          .from('warehouse_locations')
+          .select('code')
+          .eq('id', rackLocationId)
+          .single();
 
-        // Add hierarchical position data if provided
-        if (shelfNumber) {
-          updateData.shelf_number = parseInt(shelfNumber);
+        if (!locationError && location) {
+          updateData.rack = location.code; // Store warehouse location code in 'rack' column
+          console.log(`✅ Found warehouse location: ${location.code}`);
         }
-        if (sectionNumber) {
-          updateData.section_number = parseInt(sectionNumber);
-        }
-        if (subsectionNumber) {
-          updateData.subsection_number = parseInt(subsectionNumber);
-        }
+      }
+
+      // Add hierarchical position data if provided
+      if (shelfNumber) {
+        updateData.shelf_number = parseInt(shelfNumber);
+      }
+      if (sectionNumber) {
+        updateData.section_number = parseInt(sectionNumber);
+      }
+      if (subsectionNumber) {
+        updateData.subsection_number = parseInt(subsectionNumber);
+      }
+      if (positionCode) {
+        updateData.position_code = positionCode;
+      }
+
+      console.log('📦 Update data:', updateData);
+
+      // Update all inventory units with warehouse and hierarchical position
+      const { error: updateError } = await supabaseAdmin
+        .from('inventory_units')
+        .update(updateData)
+        .in('id', inventoryUnitIds);
+
+      if (updateError) {
+        console.error('⚠️ Failed to update inventory units:', updateError);
+      } else {
+        console.log(`✅ Warehouse location assigned to ${inventoryUnitIds.length} units`);
         if (positionCode) {
-          updateData.position_code = positionCode;
-        }
-
-        console.log('📦 Update data:', updateData);
-
-        // Update all inventory units with warehouse, rack, and hierarchical position
-        const { error: updateError } = await supabaseAdmin
-          .from('inventory_units')
-          .update(updateData)
-          .in('id', inventoryUnitIds);
-
-        if (updateError) {
-          console.error('⚠️ Failed to update inventory units:', updateError);
-        } else {
-          console.log(`✅ Warehouse and hierarchical location assigned: ${rack.rack_code} (${inventoryUnitIds.length} units)`);
-          if (positionCode) {
-            console.log(`📍 Position code: ${positionCode}`);
-          }
-          
-          // Update rack's current_count by counting actual inventory units
-          try {
-            // Count how many inventory units are currently assigned to this rack
-            const { count, error: countError } = await supabaseAdmin
-              .from('inventory_units')
-              .select('*', { count: 'exact', head: true })
-              .eq('warehouse_id', warehouseId)
-              .eq('rack', rack.rack_code);
-            
-            if (!countError && count !== null) {
-              // Update the rack with the actual count
-              await supabaseAdmin
-                .from('rack_configurations')
-                .update({ current_count: count })
-                .eq('id', rackId);
-              
-              console.log(`✅ Rack count updated to ${count} units`);
-            }
-          } catch (countError) {
-            console.warn('⚠️ Could not update rack count:', countError);
-          }
+          console.log(`📍 Position code: ${positionCode}`);
         }
       }
     } catch (locError) {
@@ -212,7 +353,7 @@ export async function createBarcodes({
       // Don't fail the entire operation if location assignment fails
     }
   } else {
-    console.log('📦 No warehouse/rack provided - units will be unassigned');
+    console.log('📦 No warehouse provided - units will be unassigned');
   }
 
   // ---------------------------------------------------------
@@ -456,7 +597,7 @@ export async function getTraceability(barcodeValue) {
         assigned_at,
         received_at,
         last_scanned_at,
-        warehouses:warehouse_id (
+        warehouses (
           id,
           name,
           code,

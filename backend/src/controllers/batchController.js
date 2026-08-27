@@ -169,7 +169,10 @@ export async function createBatch(req, res) {
       batch_year,
       manufactured_date,
       expiry_date,
-      notes
+      notes,
+      warehouse_code,
+      warehouse_name,
+      products // Array of products with assigned_positions
     } = req.body;
 
     // Validation
@@ -202,7 +205,7 @@ export async function createBatch(req, res) {
       });
     }
 
-    // Verify product exists (if provided)
+    // Verify product exists (if provided - for backward compatibility)
     if (product_id) {
       const { data: product, error: productError } = await supabaseAdmin
         .from('products')
@@ -217,20 +220,47 @@ export async function createBatch(req, res) {
       }
     }
 
-    // Create batch
+    // Log assigned positions data
+    if (products && products.length > 0) {
+      console.log('📦 Batch creation with assigned positions:');
+      console.log(`   Warehouse: ${warehouse_name} (${warehouse_code})`);
+      console.log(`   Products: ${products.length}`);
+      products.forEach((prod, idx) => {
+        console.log(`   Product ${idx + 1}: ${prod.product_name}`);
+        if (prod.assigned_positions && prod.assigned_positions.length > 0) {
+          console.log(`     - Positions: ${prod.assigned_positions.length}`);
+          prod.assigned_positions.forEach(pos => {
+            console.log(`       * ${pos.position_code} (Qty: ${pos.quantity})`);
+          });
+        }
+      });
+    }
+
+    // Create batch with metadata
+    const batchData = {
+      shipment_id,
+      product_id,
+      batch_number,
+      batch_month,
+      batch_year,
+      manufactured_date,
+      expiry_date,
+      status: 'ACTIVE',
+      notes
+    };
+
+    // Store warehouse and products data as metadata (JSON column)
+    if (warehouse_code || products) {
+      batchData.metadata = {
+        warehouse_code,
+        warehouse_name,
+        products_with_positions: products || []
+      };
+    }
+
     const { data, error } = await supabaseAdmin
       .from('batches')
-      .insert({
-        shipment_id,
-        product_id,
-        batch_number,
-        batch_month,
-        batch_year,
-        manufactured_date,
-        expiry_date,
-        status: 'ACTIVE',
-        notes
-      })
+      .insert(batchData)
       .select(`
         *,
         products:product_id (
@@ -264,6 +294,8 @@ export async function createBatch(req, res) {
         details: error.message
       });
     }
+
+    console.log('✅ Batch created successfully with assigned positions');
 
     res.status(201).json({
       success: true,

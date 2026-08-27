@@ -1,82 +1,62 @@
-/**
- * Check if racks exist in database
- */
-
-import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-});
+import 'dotenv/config';
+import { supabaseAdmin } from './src/config/supabase.js';
 
 async function checkRacks() {
-  console.log('🔍 Checking warehouses...\n');
-  
-  // Get warehouses
-  const { data: warehouses, error: whError } = await supabase
-    .from('warehouses')
-    .select('*');
-    
-  if (whError) {
-    console.error('❌ Error fetching warehouses:', whError);
-    return;
-  }
-  
-  console.log(`✅ Found ${warehouses.length} warehouses:`);
-  warehouses.forEach(wh => {
-    console.log(`  - ${wh.name} (${wh.code}) - ID: ${wh.id}`);
-  });
-  
-  console.log('\n🔍 Checking rack_configurations...\n');
+  console.log('🔍 Checking rack_configurations table...\n');
   
   // Get all racks
-  const { data: racks, error: rackError } = await supabase
+  const { data: racks, error } = await supabaseAdmin
     .from('rack_configurations')
-    .select('*');
-    
-  if (rackError) {
-    console.error('❌ Error fetching racks:', rackError);
-    return;
-  }
+    .select('*')
+    .order('rack_number');
   
-  console.log(`✅ Found ${racks?.length || 0} racks in total`);
+  if (error) {
+    console.error('❌ Error:', error);
+    process.exit(1);
+  }
   
   if (!racks || racks.length === 0) {
-    console.warn('\n⚠️ NO RACKS FOUND IN DATABASE!');
-    console.warn('💡 You need to create racks in the Warehouse Locations page first');
-    return;
-  }
-  
-  // Group by warehouse
-  const racksByWarehouse = {};
-  racks.forEach(rack => {
-    if (!racksByWarehouse[rack.warehouse_id]) {
-      racksByWarehouse[rack.warehouse_id] = [];
-    }
-    racksByWarehouse[rack.warehouse_id].push(rack);
-  });
-  
-  console.log('\n📊 Racks by Warehouse:\n');
-  
-  for (const [warehouseId, warehouseRacks] of Object.entries(racksByWarehouse)) {
-    const warehouse = warehouses.find(w => w.id === warehouseId);
-    console.log(`\n🏭 ${warehouse?.name || 'Unknown'} (${warehouseId}):`);
-    console.log(`   Total racks: ${warehouseRacks.length}`);
-    
-    warehouseRacks.forEach((rack, idx) => {
-      console.log(`   ${idx + 1}. ${rack.rack_code} - ${rack.designated_size}`);
-      console.log(`      Capacity: ${rack.current_count}/${rack.total_capacity} used`);
-      console.log(`      Config: ${rack.total_shelves} shelves, ${rack.sections_per_shelf} sections, ${rack.subsections_per_section} subsections`);
+    console.log('❌ NO RACKS FOUND IN rack_configurations TABLE!');
+    console.log('\nThis is the problem! The barcodeService.js tries to find racks by:');
+    console.log('  - warehouse_id');
+    console.log('  - rack_number (extracted from position code like WH1-R05-RK05-S01-SH05-SUB01)');
+    console.log('\nBut the table is empty, so it cannot assign warehouse location!');
+    console.log('\nSolution: Create racks in rack_configurations table');
+  } else {
+    console.log(`✅ Found ${racks.length} rack(s):\n`);
+    racks.forEach((rack, i) => {
+      console.log(`${i + 1}. ${rack.rack_code || 'No code'}`);
+      console.log(`   Warehouse ID: ${rack.warehouse_id}`);
+      console.log(`   Rack Number: ${rack.rack_number}`);
+      console.log(`   Capacity: ${rack.total_capacity || 0}`);
+      console.log(`   Current Count: ${rack.current_count || 0}`);
+      console.log('');
     });
   }
+  
+  // Check if warehouse_locations table has data (the old rack system)
+  console.log('='.repeat(80));
+  console.log('\n🔍 Checking warehouse_locations table (old rack system)...\n');
+  
+  const { data: locations, error: locError } = await supabaseAdmin
+    .from('warehouse_locations')
+    .select('id, code, zone, aisle, rack')
+    .limit(10);
+  
+  if (locError) {
+    console.error('❌ Error:', locError);
+  } else if (!locations || locations.length === 0) {
+    console.log('⚠️ No warehouse locations found');
+  } else {
+    console.log(`✅ Found ${locations.length} warehouse location(s):\n`);
+    locations.forEach((loc, i) => {
+      console.log(`${i + 1}. ${loc.code}`);
+      console.log(`   Zone: ${loc.zone}, Aisle: ${loc.aisle}, Rack: ${loc.rack}`);
+      console.log('');
+    });
+  }
+  
+  process.exit(0);
 }
 
-checkRacks().catch(console.error);
+checkRacks();

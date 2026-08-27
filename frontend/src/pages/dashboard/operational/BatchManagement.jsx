@@ -85,23 +85,52 @@ export default function BatchManagement() {
   const handleShipmentChange = (shipmentId) => {
     const selectedShipment = shipments.find(s => s.id === shipmentId);
     if (selectedShipment) {
+      console.log('📦 Selected Shipment:', selectedShipment);
+      console.log('📦 Product Breakdown:', selectedShipment.product_breakdown);
+      
       // Auto-detect warehouse from product assigned positions
       let warehouseName = '';
       let warehouseCode = '';
       
       const shipmentProducts = selectedShipment.product_breakdown || [];
+      console.log(`📦 Found ${shipmentProducts.length} products in shipment`);
+      
+      // Count total assigned positions
+      let totalPositions = 0;
+      let productsWithPositions = 0;
+      
+      shipmentProducts.forEach((product, idx) => {
+        const posCount = product.assigned_positions?.length || 0;
+        totalPositions += posCount;
+        if (posCount > 0) productsWithPositions++;
+        
+        console.log(`📦 Product ${idx + 1}:`, {
+          name: product.product_name || `${product.brand} ${product.model}`,
+          quantity: product.quantity,
+          assignedPositions: posCount,
+          positions: product.assigned_positions
+        });
+      });
+      
+      console.log(`📦 Summary: ${productsWithPositions}/${shipmentProducts.length} products have positions assigned (${totalPositions} total positions)`);
+      
       if (shipmentProducts.length > 0 && shipmentProducts[0].assigned_positions?.length > 0) {
         const firstPosition = shipmentProducts[0].assigned_positions[0];
         const positionCode = firstPosition.position_code || '';
+        console.log('📦 First position code:', positionCode);
+        
         // Extract warehouse code from position_code (e.g., "WH1-R05-RK05-S01-SH05-SUB01")
         const warehouseCodeMatch = positionCode.match(/^(WH\d+)/);
         
         if (warehouseCodeMatch) {
           warehouseCode = warehouseCodeMatch[1];
-          // You can map this to actual warehouse names if you have the warehouse list
-          // For now, we'll use a simple mapping or display the code
           warehouseName = `Warehouse ${warehouseCode}`;
+          console.log('✅ Warehouse detected:', warehouseName, warehouseCode);
+        } else {
+          console.warn('⚠️ Could not extract warehouse code from position:', positionCode);
         }
+      } else {
+        console.warn('⚠️ No assigned positions found in products');
       }
       
       setFormData(prev => ({
@@ -113,6 +142,8 @@ export default function BatchManagement() {
         warehouse_code: warehouseCode,
         product_breakdown: selectedShipment.product_breakdown || []
       }));
+      
+      console.log('✅ Form data updated with shipment details and assigned positions');
     } else {
       setFormData(prev => ({
         ...prev,
@@ -174,17 +205,43 @@ export default function BatchManagement() {
     try {
       setLoading(true);
       
+      // Extract assigned positions from product breakdown
+      const productsWithPositions = (formData.product_breakdown || []).map(product => {
+        return {
+          product_id: product.product_id,
+          product_name: product.product_name || `${product.brand || ''} ${product.model || ''}`.trim(),
+          brand: product.brand,
+          model: product.model,
+          dimensions: product.dimensions || product.size,
+          sku: product.sku,
+          quantity: product.quantity,
+          assigned_positions: product.assigned_positions || []
+        };
+      });
+
+      // Build complete batch data with assigned positions
       const batchData = {
-        ...formData,
-        batch_number: formData.batch_number || generateBatchNumber()
+        shipment_id: formData.shipment_id,
+        batch_number: formData.batch_number || generateBatchNumber(),
+        batch_month: formData.batch_month,
+        batch_year: formData.batch_year,
+        manufactured_date: formData.manufactured_date || null,
+        expiry_date: formData.expiry_date || null,
+        notes: formData.notes || null,
+        warehouse_code: formData.warehouse_code || null,
+        warehouse_name: formData.warehouse_name || null,
+        // Include products with their assigned positions
+        products: productsWithPositions
       };
+
+      console.log('📦 Batch data being sent:', JSON.stringify(batchData, null, 2));
 
       if (editingBatch) {
         await updateBatch(editingBatch.id, batchData);
-        setSuccess('Batch updated successfully');
+        setSuccess('Batch updated successfully with assigned positions');
       } else {
         await createBatch(batchData);
-        setSuccess('Batch created successfully');
+        setSuccess('Batch created successfully with assigned positions');
       }
 
       setTimeout(() => setSuccess(''), 3000);
@@ -192,6 +249,7 @@ export default function BatchManagement() {
       await loadData();
     } catch (err) {
       console.error('Error saving batch:', err);
+      console.error('Error details:', err.response?.data);
       setError(err.response?.data?.error || 'Failed to save batch');
       setTimeout(() => setError(null), 5000);
     } finally {
@@ -568,6 +626,58 @@ export default function BatchManagement() {
                         )}
                       </div>
                     )}
+
+                    {/* Position Detection Summary */}
+                    {formData.product_breakdown && formData.product_breakdown.length > 0 && (() => {
+                      const totalPositions = formData.product_breakdown.reduce((sum, p) => {
+                        return sum + (p.assigned_positions?.length || 0);
+                      }, 0);
+                      const productsWithPositions = formData.product_breakdown.filter(p => 
+                        p.assigned_positions && p.assigned_positions.length > 0
+                      ).length;
+                      
+                      if (totalPositions > 0) {
+                        return (
+                          <div className="mt-6 rounded-xl border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-5">
+                            <div className="flex items-start gap-4">
+                              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0 shadow-lg">
+                                <MapPin className="w-6 h-6 text-white" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <h4 className="text-sm font-bold text-blue-900">Assigned Positions Detected</h4>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Ready for Barcode Generation
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-3 gap-4 mt-3">
+                                  <div className="bg-white rounded-lg p-3 border border-blue-200">
+                                    <p className="text-xs font-bold text-blue-600 uppercase mb-1">Products with Positions</p>
+                                    <p className="text-2xl font-bold text-blue-900">{productsWithPositions}</p>
+                                  </div>
+                                  <div className="bg-white rounded-lg p-3 border border-blue-200">
+                                    <p className="text-xs font-bold text-blue-600 uppercase mb-1">Total Positions</p>
+                                    <p className="text-2xl font-bold text-blue-900">{totalPositions}</p>
+                                  </div>
+                                  <div className="bg-white rounded-lg p-3 border border-blue-200">
+                                    <p className="text-xs font-bold text-blue-600 uppercase mb-1">Warehouse</p>
+                                    <p className="text-lg font-bold text-blue-900">{formData.warehouse_code || 'N/A'}</p>
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex items-center gap-2 text-xs text-blue-700">
+                                  <Barcode className="w-4 h-4" />
+                                  <span className="font-medium">
+                                    When generating barcodes, each position will be automatically included in the barcode data
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 </div>
 

@@ -627,6 +627,16 @@ export default function WarehouseLocations() {
   const [showHistoryModal, setShowHistoryModal] =
     useState(false);
 
+  // Inline quantity edit state
+  const [editingQuantityPositionId, setEditingQuantityPositionId] =
+    useState(null);
+
+  const [editingQuantityValue, setEditingQuantityValue] =
+    useState('');
+
+  const [savingInlineQuantity, setSavingInlineQuantity] =
+    useState(false);
+
 
   /* ==========================================================================
      LOAD PRODUCTS (for tire picker)
@@ -1676,6 +1686,78 @@ export default function WarehouseLocations() {
     } finally {
 
       setPositionSaving(false);
+    }
+  };
+
+
+  /* ==========================================================================
+     SAVE INLINE QUANTITY EDIT
+  ========================================================================== */
+
+  const saveInlineQuantity = async (position) => {
+
+    if (!selectedRack) return;
+
+    const newQuantity = parseInt(editingQuantityValue) || 0;
+    const capacity = Number(position.capacity || 0);
+
+    if (newQuantity < 0) {
+      showToast('Quantity cannot be negative', 'error');
+      setEditingQuantityPositionId(null);
+      return;
+    }
+
+    if (newQuantity > capacity) {
+      showToast(`Quantity cannot exceed capacity of ${capacity}`, 'error');
+      setEditingQuantityPositionId(null);
+      return;
+    }
+
+    // If setting quantity to 0, clear tire size
+    // If setting quantity > 0 and no tire size exists, show error
+    const currentTireSize = position.tire_size || position.tireSize;
+    if (newQuantity > 0 && !currentTireSize) {
+      showToast('Please assign a tire size first using the "Assign Tire" button', 'error');
+      setEditingQuantityPositionId(null);
+      return;
+    }
+
+    setSavingInlineQuantity(true);
+
+    try {
+
+      await api.put(
+        `/warehouse-locations/${selectedRack.id}/positions/${position.id}`,
+        {
+          tire_size: newQuantity > 0 ? currentTireSize : null,
+          quantity: newQuantity,
+        }
+      );
+
+      showToast('Quantity updated', 'success');
+
+      // Refresh positions
+      await loadRackPositions(selectedRack, true);
+
+      // Refresh rack data
+      const refreshedLocations = await loadLocations();
+      const updatedRack = refreshedLocations?.find(l => l.id === selectedRack.id);
+      if (updatedRack) {
+        setSelectedRack(updatedRack);
+      }
+
+      setEditingQuantityPositionId(null);
+
+    } catch (error) {
+
+      console.error('Inline quantity update error:', error);
+      showToast(
+        error.response?.data?.error || error.message || 'Failed to update quantity',
+        'error'
+      );
+
+    } finally {
+      setSavingInlineQuantity(false);
     }
   };
 
@@ -3882,6 +3964,16 @@ export default function WarehouseLocations() {
                 </div>
               )}
 
+              {/* Quick edit hint */}
+              {!bulkMode && (
+                <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                  <Zap size={13} />
+                  <span>
+                    💡 <strong>Quick tip:</strong> Click on any quantity number to edit it directly!
+                  </span>
+                </div>
+              )}
+
             </div>
 
 
@@ -4160,9 +4252,50 @@ export default function WarehouseLocations() {
                                       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                                         Quantity
                                       </span>
-                                      <span className="text-xs font-bold text-slate-700">
-                                        {quantity} / {capacity}
-                                      </span>
+                                      
+                                      {/* Inline editable quantity */}
+                                      {editingQuantityPositionId === position.id ? (
+                                        <div className="flex items-center gap-1">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            max={capacity}
+                                            value={editingQuantityValue}
+                                            onChange={e => setEditingQuantityValue(e.target.value)}
+                                            onKeyDown={e => {
+                                              if (e.key === 'Enter') {
+                                                saveInlineQuantity(position);
+                                              } else if (e.key === 'Escape') {
+                                                setEditingQuantityPositionId(null);
+                                              }
+                                            }}
+                                            onBlur={() => saveInlineQuantity(position)}
+                                            autoFocus
+                                            disabled={savingInlineQuantity}
+                                            className="w-16 rounded border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700 outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-60"
+                                          />
+                                          <span className="text-xs text-slate-400">/ {capacity}</span>
+                                          {savingInlineQuantity && (
+                                            <RefreshCw size={12} className="animate-spin text-blue-500" />
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={e => {
+                                            e.stopPropagation();
+                                            setEditingQuantityPositionId(position.id);
+                                            setEditingQuantityValue(String(quantity));
+                                          }}
+                                          disabled={bulkMode}
+                                          className="group flex items-center gap-1 text-xs font-bold text-slate-700 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                          title="Click to edit quantity"
+                                        >
+                                          <span>{quantity}</span>
+                                          <span className="text-slate-400">/ {capacity}</span>
+                                          <Edit size={10} className="opacity-0 transition-opacity group-hover:opacity-100" />
+                                        </button>
+                                      )}
                                     </div>
                                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
                                       <div
