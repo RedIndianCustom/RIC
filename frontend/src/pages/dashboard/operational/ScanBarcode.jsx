@@ -1521,7 +1521,7 @@ export default function ScanBarcode() {
                     </div>
                   </div>
 
-                  {/* WAREHOUSE LOCATION - HIERARCHICAL DISPLAY */}
+                  {/* WAREHOUSE LOCATION - HIERARCHICAL DISPLAY - MATCHES BarcodeGeneration.jsx */}
                   {scannedData.inventory_units && (
                     <div className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-green-500 to-teal-500 rounded-2xl p-6 border-2 border-emerald-300 shadow-xl">
                       <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-2xl" />
@@ -1549,37 +1549,42 @@ export default function ScanBarcode() {
                             </p>
                           </div>
                             
-                          {/* Hierarchical Location Breakdown */}
-                          {scannedData.inventory_units.rack_configurations && (
-                            <div className="space-y-3">
-                              {/* Rack */}
-                              <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                                <div className="flex items-center gap-2">
-                                  <Package className="w-5 h-5 text-emerald-600" />
-                                  <span className="text-sm font-bold text-emerald-900">Rack</span>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-lg font-black text-emerald-800">
-                                    {scannedData.inventory_units.rack_configurations.rack_code}
-                                  </p>
-                                  <p className="text-xs text-slate-600">
-                                    {scannedData.inventory_units.rack_configurations.designated_size}
-                                  </p>
-                                </div>
+                          {/* Hierarchical Location Breakdown - UPDATED TO USE POSITION_CODE */}
+                          {scannedData.inventory_units.position_code ? (
+                            <div className="space-y-2.5">
+                              {/* Full Position Code - PRIMARY DISPLAY */}
+                              <div className="p-4 bg-gradient-to-r from-emerald-500 to-green-500 rounded-xl border-2 border-emerald-400 shadow-lg">
+                                <p className="text-[10px] font-bold text-emerald-100 mb-2 text-center uppercase tracking-wide">📍 Storage Position</p>
+                                <p className="text-center font-mono text-xl font-black text-white break-all tracking-wider">
+                                  {scannedData.inventory_units.position_code}
+                                </p>
                               </div>
 
-                              {/* Position Details */}
+                              {/* Rack Info (if available) */}
+                              {(scannedData.inventory_units.rack || scannedData.inventory_units.position_code) && (
+                                <div className="flex items-center justify-between p-2.5 bg-emerald-50 rounded-lg border border-emerald-200">
+                                  <div className="flex items-center gap-1.5">
+                                    <Package className="w-4 h-4 text-emerald-600" />
+                                    <span className="text-xs font-bold text-emerald-900">Rack</span>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-base font-black text-emerald-800">
+                                      {scannedData.inventory_units.rack || scannedData.inventory_units.position_code.split('-').slice(0, 3).join('-')}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Position Details - Shelf, Section, Subsection */}
                               {(scannedData.inventory_units.shelf_number || 
                                 scannedData.inventory_units.section_number || 
-                                scannedData.inventory_units.subsection_number ||
-                                scannedData.inventory_units.position_code) && (
-                                <div className="grid grid-cols-3 gap-2">
+                                scannedData.inventory_units.subsection_number) && (
+                                <div className="grid grid-cols-3 gap-1.5">
                                   {/* Shelf */}
                                   {scannedData.inventory_units.shelf_number && (
-                                    <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                      <Layers className="w-4 h-4 text-blue-600 mx-auto mb-1" />
-                                      <p className="text-xs font-semibold text-blue-700 mb-1">Shelf</p>
-                                      <p className="text-xl font-black text-blue-900">
+                                    <div className="text-center p-2 bg-blue-50 rounded-lg border border-blue-200">
+                                      <div className="text-[9px] font-semibold text-blue-700 mb-0.5">🗄️ Shelf</div>
+                                      <p className="text-lg font-black text-blue-900">
                                         {scannedData.inventory_units.shelf_number}
                                       </p>
                                     </div>
@@ -1587,10 +1592,9 @@ export default function ScanBarcode() {
 
                                   {/* Section */}
                                   {scannedData.inventory_units.section_number && (
-                                    <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-200">
-                                      <Package className="w-4 h-4 text-purple-600 mx-auto mb-1" />
-                                      <p className="text-xs font-semibold text-purple-700 mb-1">Section</p>
-                                      <p className="text-xl font-black text-purple-900">
+                                    <div className="text-center p-2 bg-purple-50 rounded-lg border border-purple-200">
+                                      <div className="text-[9px] font-semibold text-purple-700 mb-0.5">📦 Section</div>
+                                      <p className="text-lg font-black text-purple-900">
                                         {scannedData.inventory_units.section_number}
                                       </p>
                                     </div>
@@ -1598,44 +1602,29 @@ export default function ScanBarcode() {
 
                                   {/* Subsection */}
                                   {scannedData.inventory_units.subsection_number && (
-                                    <div className="text-center p-3 bg-amber-50 rounded-lg border border-amber-200">
-                                      <Layers className="w-4 h-4 text-amber-600 mx-auto mb-1" />
-                                      <p className="text-xs font-semibold text-amber-700 mb-1">Subsection</p>
-                                      <p className="text-xl font-black text-amber-900">
+                                    <div className="text-center p-2 bg-amber-50 rounded-lg border border-amber-200">
+                                      <div className="text-[9px] font-semibold text-amber-700 mb-0.5">🔖 Subsection</div>
+                                      <p className="text-lg font-black text-amber-900">
                                         {scannedData.inventory_units.subsection_number}
                                       </p>
                                     </div>
                                   )}
                                 </div>
                               )}
-
-                              {/* Full Position Code */}
-                              {scannedData.inventory_units.position_code && (
-                                <div className="mt-3 p-3 bg-slate-50 rounded-lg border-2 border-slate-300">
-                                  <p className="text-xs font-semibold text-slate-600 mb-1 text-center">📍 Complete Position Code</p>
-                                  <p className="text-center font-mono text-sm font-black text-slate-900 break-all">
-                                    {scannedData.inventory_units.position_code}
-                                  </p>
-                                </div>
-                              )}
-
-                              {/* Assignment Info */}
-                              {scannedData.inventory_units.assigned_at && (
-                                <div className="pt-3 border-t border-slate-200">
-                                  <p className="text-xs text-slate-500 text-center">
-                                    📅 Assigned: {new Date(scannedData.inventory_units.assigned_at).toLocaleString()}
-                                  </p>
-                                </div>
-                              )}
                             </div>
-                          )}
-
-                          {/* No location assigned */}
-                          {!scannedData.inventory_units.rack_configurations && (
-                            <div className="text-center p-4 bg-amber-50 rounded-lg border border-amber-200">
-                              <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
-                              <p className="text-sm font-semibold text-amber-800">No Rack Location Assigned</p>
-                              <p className="text-xs text-amber-600 mt-1">This tire needs to be assigned to a storage location</p>
+                          ) : scannedData.inventory_units.rack ? (
+                            <div className="text-center p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                              <Package className="w-5 h-5 text-emerald-600 mx-auto mb-1.5" />
+                              <p className="text-sm font-bold text-emerald-900">
+                                {scannedData.inventory_units.rack}
+                              </p>
+                              <p className="text-[10px] text-slate-600 mt-0.5">Rack assigned (no detailed position)</p>
+                            </div>
+                          ) : (
+                            <div className="text-center p-3 bg-amber-50 rounded-lg border border-amber-200">
+                              <AlertCircle className="w-6 h-6 text-amber-500 mx-auto mb-1.5" />
+                              <p className="text-xs font-semibold text-amber-800">No Rack Location Assigned</p>
+                              <p className="text-[10px] text-amber-600 mt-0.5">This tire needs to be assigned to a storage location</p>
                             </div>
                           )}
                         </div>
