@@ -419,8 +419,23 @@ export default function IncomingShipments() {
                           <div className="space-y-2 max-h-32 overflow-y-auto">
                             {shipment.product_breakdown.slice(0, 3).map((product, idx) => (
                               <div key={idx} className="flex items-center justify-between text-xs bg-white/60 rounded-lg px-3 py-2">
-                                <span className="font-medium text-slate-700">{product.category} {product.size}</span>
-                                <span className="font-bold text-orange-700">{product.quantity} pcs</span>
+                                <div className="flex-1">
+                                  <span className="font-medium text-slate-700">
+                                    {product.product_name || `${product.brand || product.category} ${product.model || product.size}`}
+                                  </span>
+                                  {product.dimensions && (
+                                    <span className="ml-2 text-slate-500">({product.dimensions})</span>
+                                  )}
+                                  {product.assigned_positions && product.assigned_positions.length > 0 && (
+                                    <div className="flex items-center mt-1 space-x-1">
+                                      <MapPin className="h-3 w-3 text-emerald-600" />
+                                      <span className="text-[10px] text-emerald-700 font-semibold">
+                                        {product.assigned_positions.length} position{product.assigned_positions.length > 1 ? 's' : ''}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="font-bold text-orange-700 ml-2">{product.quantity} pcs</span>
                               </div>
                             ))}
                             {shipment.product_breakdown.length > 3 && (
@@ -634,19 +649,51 @@ export default function IncomingShipments() {
                     <div>
                       <p className="text-sm text-slate-500 mb-3">Product Breakdown</p>
                       <div className="bg-gradient-to-r from-orange-50 to-red-50 rounded-xl border-2 border-orange-200 overflow-hidden">
-                        <div className="bg-gradient-to-r from-orange-500 to-red-600 px-4 py-2">
-                          <div className="grid grid-cols-3 gap-4">
-                            <span className="text-xs font-bold text-white">Category</span>
-                            <span className="text-xs font-bold text-white">Size</span>
-                            <span className="text-xs font-bold text-white text-right">Quantity</span>
+                        <div className="bg-gradient-to-r from-orange-500 to-red-600 px-4 py-3">
+                          <div className="grid grid-cols-12 gap-3">
+                            <span className="col-span-5 text-xs font-bold text-white">Product</span>
+                            <span className="col-span-2 text-xs font-bold text-white">Size</span>
+                            <span className="col-span-3 text-xs font-bold text-white">Positions</span>
+                            <span className="col-span-2 text-xs font-bold text-white text-right">Quantity</span>
                           </div>
                         </div>
                         <div className="divide-y divide-orange-200">
                           {selectedShipment.product_breakdown.map((product, idx) => (
-                            <div key={idx} className="grid grid-cols-3 gap-4 px-4 py-3 bg-white/60 hover:bg-white transition-colors">
-                              <span className="text-sm font-semibold text-slate-800">{product.category}</span>
-                              <span className="text-sm font-medium text-slate-600">{product.size}</span>
-                              <span className="text-sm font-bold text-orange-700 text-right">{product.quantity} pcs</span>
+                            <div key={idx} className="grid grid-cols-12 gap-3 px-4 py-3 bg-white/60 hover:bg-white transition-colors">
+                              <div className="col-span-5">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  {product.product_name || `${product.brand || product.category}`}
+                                </p>
+                                {product.model && (
+                                  <p className="text-xs text-slate-600">{product.model}</p>
+                                )}
+                              </div>
+                              <span className="col-span-2 text-sm font-medium text-slate-600">
+                                {product.dimensions || product.size || '-'}
+                              </span>
+                              <div className="col-span-3">
+                                {product.assigned_positions && product.assigned_positions.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {product.assigned_positions.slice(0, 2).map((pos, pidx) => (
+                                      <div key={pidx} className="flex items-center space-x-1">
+                                        <MapPin className="h-3 w-3 text-emerald-600 flex-shrink-0" />
+                                        <span className="text-[10px] font-mono text-emerald-700 font-semibold">
+                                          {pos.position_code}
+                                        </span>
+                                        <span className="text-[10px] text-slate-500">({pos.quantity})</span>
+                                      </div>
+                                    ))}
+                                    {product.assigned_positions.length > 2 && (
+                                      <p className="text-[10px] text-emerald-600 font-medium">
+                                        +{product.assigned_positions.length - 2} more
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-slate-400 italic">No positions</span>
+                                )}
+                              </div>
+                              <span className="col-span-2 text-sm font-bold text-orange-700 text-right">{product.quantity} pcs</span>
                             </div>
                           ))}
                         </div>

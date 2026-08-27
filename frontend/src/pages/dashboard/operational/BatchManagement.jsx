@@ -21,7 +21,8 @@ import {
   CheckCircle2,
   XCircle,
   Ship,
-  Box
+  Box,
+  MapPin
 } from 'lucide-react';
 import { 
   fetchBatches, 
@@ -75,6 +76,8 @@ export default function BatchManagement() {
     // Additional display fields (not sent to API)
     container_number: '',
     bl_number: '',
+    warehouse_name: '',
+    warehouse_code: '',
     product_breakdown: []
   });
 
@@ -82,11 +85,32 @@ export default function BatchManagement() {
   const handleShipmentChange = (shipmentId) => {
     const selectedShipment = shipments.find(s => s.id === shipmentId);
     if (selectedShipment) {
+      // Auto-detect warehouse from product assigned positions
+      let warehouseName = '';
+      let warehouseCode = '';
+      
+      const shipmentProducts = selectedShipment.product_breakdown || [];
+      if (shipmentProducts.length > 0 && shipmentProducts[0].assigned_positions?.length > 0) {
+        const firstPosition = shipmentProducts[0].assigned_positions[0];
+        const positionCode = firstPosition.position_code || '';
+        // Extract warehouse code from position_code (e.g., "WH1-R05-RK05-S01-SH05-SUB01")
+        const warehouseCodeMatch = positionCode.match(/^(WH\d+)/);
+        
+        if (warehouseCodeMatch) {
+          warehouseCode = warehouseCodeMatch[1];
+          // You can map this to actual warehouse names if you have the warehouse list
+          // For now, we'll use a simple mapping or display the code
+          warehouseName = `Warehouse ${warehouseCode}`;
+        }
+      }
+      
       setFormData(prev => ({
         ...prev,
         shipment_id: shipmentId,
         container_number: selectedShipment.container_number || '',
         bl_number: selectedShipment.bl_number || '',
+        warehouse_name: warehouseName,
+        warehouse_code: warehouseCode,
         product_breakdown: selectedShipment.product_breakdown || []
       }));
     } else {
@@ -95,6 +119,8 @@ export default function BatchManagement() {
         shipment_id: '',
         container_number: '',
         bl_number: '',
+        warehouse_name: '',
+        warehouse_code: '',
         product_breakdown: []
       }));
     }
@@ -176,8 +202,24 @@ export default function BatchManagement() {
   const handleEdit = (batch) => {
     setEditingBatch(batch);
     
-    // Find the shipment to get container, BL, and products
+    // Find the shipment to get container, BL, products, and warehouse
     const batchShipment = shipments.find(s => s.id === batch.shipment_id);
+    
+    // Auto-detect warehouse from product assigned positions
+    let warehouseName = '';
+    let warehouseCode = '';
+    
+    const shipmentProducts = batchShipment?.product_breakdown || [];
+    if (shipmentProducts.length > 0 && shipmentProducts[0].assigned_positions?.length > 0) {
+      const firstPosition = shipmentProducts[0].assigned_positions[0];
+      const positionCode = firstPosition.position_code || '';
+      const warehouseCodeMatch = positionCode.match(/^(WH\d+)/);
+      
+      if (warehouseCodeMatch) {
+        warehouseCode = warehouseCodeMatch[1];
+        warehouseName = `Warehouse ${warehouseCode}`;
+      }
+    }
     
     setFormData({
       shipment_id: batch.shipment_id || '',
@@ -190,6 +232,8 @@ export default function BatchManagement() {
       // Auto-fill shipment details for edit mode
       container_number: batchShipment?.container_number || batch.shipments?.container_number || '',
       bl_number: batchShipment?.bl_number || batch.shipments?.bl_number || '',
+      warehouse_name: warehouseName,
+      warehouse_code: warehouseCode,
       product_breakdown: batchShipment?.product_breakdown || []
     });
     setShowForm(true);
@@ -223,6 +267,8 @@ export default function BatchManagement() {
       notes: '',
       container_number: '',
       bl_number: '',
+      warehouse_name: '',
+      warehouse_code: '',
       product_breakdown: []
     });
     setEditingBatch(null);
@@ -484,8 +530,8 @@ export default function BatchManagement() {
                     )}
 
                     {/* Auto-filled Shipment Details */}
-                    {(formData.container_number || formData.bl_number) && (
-                      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(formData.container_number || formData.bl_number || formData.warehouse_name) && (
+                      <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                         {formData.container_number && (
                           <div className="bg-white rounded-xl p-5 border-2 border-blue-200 shadow-sm">
                             <p className="text-xs font-bold text-blue-600 uppercase mb-2 flex items-center gap-1.5">
@@ -502,6 +548,22 @@ export default function BatchManagement() {
                               BL Number
                             </p>
                             <p className="text-xl font-bold text-blue-900">{formData.bl_number}</p>
+                          </div>
+                        )}
+                        {formData.warehouse_name && (
+                          <div className="bg-white rounded-xl p-5 border-2 border-emerald-200 shadow-sm">
+                            <p className="text-xs font-bold text-emerald-600 uppercase mb-2 flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5" />
+                              Warehouse
+                            </p>
+                            <p className="text-lg font-bold text-emerald-900">{formData.warehouse_name}</p>
+                            {formData.warehouse_code && (
+                              <p className="text-xs text-slate-600 mt-1">Code: {formData.warehouse_code}</p>
+                            )}
+                            <div className="mt-2 flex items-center gap-1 text-[10px] text-emerald-700">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span className="font-medium">Auto-detected from positions</span>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -537,34 +599,93 @@ export default function BatchManagement() {
                       </div>
 
                       <div className="space-y-3 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
-                        {formData.product_breakdown.map((product, idx) => (
-                          <div 
-                            key={idx} 
-                            className="bg-white rounded-xl p-5 border-2 border-orange-200 hover:border-orange-400 hover:shadow-lg transition-all group"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-lg font-bold shadow-lg group-hover:scale-110 transition-transform">
-                                  {idx + 1}
+                        {formData.product_breakdown.map((product, idx) => {
+                          // Support both legacy (category/size) and new format (brand/model/dimensions)
+                          const displayName = product.product_name || `${product.brand || ''} ${product.model || ''}`.trim() || product.category || 'Unknown Product';
+                          const displaySize = product.dimensions || product.size || 'N/A';
+                          const hasPositions = product.assigned_positions && product.assigned_positions.length > 0;
+                          
+                          return (
+                            <div 
+                              key={idx} 
+                              className="bg-white rounded-xl p-5 border-2 border-orange-200 hover:border-orange-400 hover:shadow-lg transition-all group"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex items-start gap-4 flex-1">
+                                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white text-lg font-bold shadow-lg group-hover:scale-110 transition-transform flex-shrink-0">
+                                    {idx + 1}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    {/* Product Name */}
+                                    <p className="text-base font-bold text-slate-900 mb-1 truncate">{displayName}</p>
+                                    
+                                    {/* Brand & Model (if available) */}
+                                    {product.brand && product.model && (
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <span className="text-xs font-bold text-orange-600 uppercase">Brand:</span>
+                                        <span className="text-sm text-slate-700 font-medium">{product.brand}</span>
+                                        <span className="text-slate-300">|</span>
+                                        <span className="text-xs font-bold text-orange-600 uppercase">Model:</span>
+                                        <span className="text-sm text-slate-700 font-medium">{product.model}</span>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Size/Dimensions */}
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Box className="w-3.5 h-3.5 text-orange-500" />
+                                      <span className="text-sm text-slate-600 font-medium">{displaySize}</span>
+                                    </div>
+                                    
+                                    {/* SKU */}
+                                    {product.sku && (
+                                      <div className="text-xs text-slate-500 mb-2">
+                                        SKU: <span className="font-mono font-medium">{product.sku}</span>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Assigned Positions */}
+                                    {hasPositions && (
+                                      <div className="mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                                          <span className="text-xs font-bold text-blue-900 uppercase">
+                                            Assigned Positions ({product.assigned_positions.length})
+                                          </span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {product.assigned_positions.slice(0, 3).map((pos, posIdx) => (
+                                            <div 
+                                              key={posIdx}
+                                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-blue-300 text-xs font-bold text-blue-700"
+                                            >
+                                              <MapPin className="w-3 h-3" />
+                                              {pos.position_code}
+                                              <span className="text-blue-500">×{pos.quantity}</span>
+                                            </div>
+                                          ))}
+                                          {product.assigned_positions.length > 3 && (
+                                            <div className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-100 text-xs font-bold text-blue-700">
+                                              +{product.assigned_positions.length - 3} more
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className="text-base font-bold text-slate-900 mb-1">{product.category}</p>
-                                  <span className="text-sm text-slate-600 font-medium flex items-center gap-1.5">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                                    {product.size}
+                                
+                                {/* Quantity */}
+                                <div className="text-right flex-shrink-0">
+                                  <p className="text-xs font-bold text-orange-600 uppercase mb-1">Quantity</p>
+                                  <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-orange-100 to-red-100 border-2 border-orange-300 text-lg font-bold text-orange-700">
+                                    {product.quantity}
+                                    <span className="text-xs">pcs</span>
                                   </span>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="text-xs font-bold text-orange-600 uppercase mb-1">Quantity</p>
-                                <span className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-orange-100 to-red-100 border-2 border-orange-300 text-lg font-bold text-orange-700">
-                                  {product.quantity}
-                                  <span className="text-xs">pcs</span>
-                                </span>
-                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
@@ -849,19 +970,46 @@ export default function BatchManagement() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
                     {/* Product Info */}
-                    <div className="space-y-1">
-                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Products</div>
+                    <div className="space-y-2">
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Package className="w-3.5 h-3.5" />
+                        Products
+                      </div>
                       {batch.shipments?.product_breakdown && batch.shipments.product_breakdown.length > 0 ? (
-                        <div className="space-y-1">
-                          {batch.shipments.product_breakdown.slice(0, 2).map((product, idx) => (
-                            <div key={idx} className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
-                              {product.category} - {product.size} ({product.quantity} pcs)
-                            </div>
-                          ))}
+                        <div className="space-y-2">
+                          {batch.shipments.product_breakdown.slice(0, 2).map((product, idx) => {
+                            // Support both legacy (category/size) and new format (brand/model/dimensions)
+                            const displayName = product.product_name || `${product.brand || ''} ${product.model || ''}`.trim() || product.category || 'Unknown Product';
+                            const displaySize = product.dimensions || product.size || 'N/A';
+                            const hasPositions = product.assigned_positions && product.assigned_positions.length > 0;
+                            
+                            return (
+                              <div key={idx} className="bg-gradient-to-r from-orange-50 to-red-50 rounded-lg p-3 border border-orange-200">
+                                <div className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-2">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                                  {displayName}
+                                </div>
+                                <div className="text-xs text-slate-600 mb-1 flex items-center gap-1.5">
+                                  <Box className="w-3 h-3 text-orange-500" />
+                                  {displaySize}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-bold text-orange-600">
+                                    Qty: {product.quantity} pcs
+                                  </span>
+                                  {hasPositions && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 text-xs font-bold">
+                                      <MapPin className="w-3 h-3" />
+                                      {product.assigned_positions.length} pos
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                           {batch.shipments.product_breakdown.length > 2 && (
-                            <div className="text-xs text-slate-500 italic">
-                              +{batch.shipments.product_breakdown.length - 2} more
+                            <div className="text-xs text-slate-500 italic pl-2">
+                              +{batch.shipments.product_breakdown.length - 2} more products
                             </div>
                           )}
                         </div>
@@ -872,14 +1020,20 @@ export default function BatchManagement() {
 
                     {/* Shipment Info */}
                     <div className="space-y-1">
-                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Shipment</div>
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Ship className="w-3.5 h-3.5" />
+                        Shipment
+                      </div>
                       <div className="text-sm font-semibold text-slate-900">{batch.shipments?.shipment_number || 'N/A'}</div>
                       <div className="text-xs text-slate-600">{batch.shipments?.container_number}</div>
                     </div>
 
                     {/* Dates */}
                     <div className="space-y-1">
-                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Created</div>
+                      <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" />
+                        Created
+                      </div>
                       <div className="text-sm font-semibold text-slate-900">
                         {new Date(batch.created_at).toLocaleDateString()}
                       </div>

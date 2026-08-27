@@ -56,6 +56,8 @@ export default function BarcodeGeneration() {
     shipmentId: '',
     warehouseId: '',
     rackId: '',
+    rackCode: '',
+    rackDesignatedSize: '',
     rackLocationId: '',
     shelfNumber: '',
     sectionNumber: '',
@@ -1735,13 +1737,207 @@ export default function BarcodeGeneration() {
                   <select
                     value={formData.batchId}
                     onChange={(e) => {
-                      const batch = batches.find(b => b.id === e.target.value);
-                      setFormData({
-                        ...formData,
-                        batchId: e.target.value,
-                        productId: batch?.product_id || '',
-                        shipmentId: batch?.shipment_id || ''
-                      });
+                      const batchId = e.target.value;
+                      const batch = batches.find(b => b.id === batchId);
+                      
+                      if (batch) {
+                        const shipmentProducts = batch.shipments?.product_breakdown || [];
+                        
+                        // Calculate total quantity from all products
+                        const totalQuantity = shipmentProducts.reduce((sum, product) => {
+                          return sum + (parseInt(product.quantity) || 0);
+                        }, 0);
+                        
+                        // Auto-select first product if available
+                        let selectedProductId = batch.product_id || '';
+                        
+                        // If no direct product_id but has shipment products, try to match first one
+                        if (!selectedProductId && shipmentProducts.length > 0) {
+                          const firstProduct = shipmentProducts[0];
+                          const matchingProduct = products.find(p => {
+                            const sizeDimMatch = p.dimensions === (firstProduct.dimensions || firstProduct.size);
+                            const catMatch = p.category?.toLowerCase() === firstProduct.category?.toLowerCase();
+                            return sizeDimMatch || (catMatch && p.dimensions?.includes(firstProduct.size));
+                          });
+                          selectedProductId = matchingProduct?.id || '';
+                        }
+                        
+                        // Auto-detect warehouse and rack from assigned positions
+                        let warehouseId = '';
+                        let rackId = '';
+                        let rackCode = '';
+                        let rackDesignatedSize = '';
+                        
+                        console.log('🔍 Shipment Products:', shipmentProducts);
+                        console.log('🔍 First Product Assigned Positions:', shipmentProducts[0]?.assigned_positions);
+                        
+                        if (shipmentProducts.length > 0 && shipmentProducts[0].assigned_positions?.length > 0) {
+                          const firstPosition = shipmentProducts[0].assigned_positions[0];
+                          // Extract from position_code (e.g., "WH1-R05-RK05-S01-SH05-SUB01")
+                          const positionCode = firstPosition.position_code || '';
+                          
+                          console.log('🔍 Position Code to Parse:', positionCode);
+                          
+                          // Extract warehouse
+                          const warehouseCodeMatch = positionCode.match(/^(WH\d+)/);
+                          if (warehouseCodeMatch) {
+                            const warehouseCode = warehouseCodeMatch[1];
+                            const warehouse = warehouses.find(w => w.code === warehouseCode);
+                            if (warehouse) {
+                              warehouseId = warehouse.id;
+                            }
+                          }
+                          
+                          // Extract rack (format: WH1-RCS-RK01 or WH1-RACK-1 or WH1-R05)
+                          // Match any alphanumeric code after WH\d+-
+                          const rackCodeMatch = positionCode.match(/^WH\d+-([A-Z0-9]+(?:-[A-Z0-9]+)?)-/);
+                          if (rackCodeMatch && warehouseCodeMatch) {
+                            const extractedRackCode = rackCodeMatch[1];
+                            // Full rack code is WH + extracted part
+                            rackCode = `${warehouseCodeMatch[1]}-${extractedRackCode}`;
+                            
+                            console.log('🔍 Extracted Rack Code:', rackCode, 'from position:', positionCode);
+                            
+                            // Try to find rack in racks array (if loaded)
+                            const rack = racks.find(r => r.rack_code === rackCode);
+                            if (rack) {
+                              rackId = rack.id;
+                              rackDesignatedSize = rack.designated_size;
+                              console.log('✅ Found rack in database:', rack);
+                            } else {
+                              console.log('⚠️ Rack not in database, trying fallback mapping');
+                              // Fallback: use hardcoded mapping
+                              const rackMapping = {
+                                'WH1-RACK-1': { id: 'RACK-1', designated_size: '90/90-18' },
+                                'WH1-RACK-2': { id: 'RACK-2', designated_size: '100/90-17' },
+                                'WH1-RACK-3': { id: 'RACK-3', designated_size: '110/90-17' },
+                                'WH1-RACK-4': { id: 'RACK-4', designated_size: '120/80-17' },
+                                'WH1-RACK-5': { id: 'RACK-5', designated_size: 'General' },
+                                'WH1-RCS': { id: 'RCS', designated_size: 'Enduro 80/90-18' }
+                              };
+                              const mappedRack = rackMapping[rackCode];
+                              if (mappedRack) {
+                                rackId = mappedRack.id;
+                                rackDesignatedSize = mappedRack.designated_size;
+                                console.log('✅ Found rack in fallback mapping:', mappedRack);
+                              } else {
+                                console.log('❌ Rack not found in mapping:', rackCode);
+                              }
+                            }
+                          } else {
+                            console.log('❌ Could not extract rack code from:', positionCode);
+                          }
+                        }
+                        
+                        setFormData({
+                          ...formData,
+                          batchId: batchId,
+                          productId: selectedProductId,
+                          shipmentId: batch.shipment_id || '',
+                          warehouseId: warehouseId,
+                          rackId: rackId,
+                          rackCode: rackCode,
+                          rackDesignatedSize: rackDesignatedSize,
+                          rackLocationId: '',
+                          shelfNumber: '',
+                          sectionNumber: '',
+                          subsectionNumber: ''
+                        });
+                        
+                        // Set batch quantity to total from all products
+                        setBatchQuantity(totalQuantity > 0 ? totalQuantity : 1);
+                        
+                        // Load racks if warehouse detected
+                        if (warehouseId) {
+                          loadAllRacksForWarehouse(warehouseId);
+                        }
+                        
+                        // Set rack config if rack is detected
+                        if (rackId) {
+                          const hardcodedRacks = {
+                            'RACK-1': {
+                              id: 'RACK-1',
+                              rack_code: 'WH1-RACK-1',
+                              designated_size: '90/90-18',
+                              total_shelves: 4,
+                              sections_per_shelf: 5,
+                              subsections_per_section: 2,
+                              capacity_per_subsection: 15,
+                              total_capacity: 600
+                            },
+                            'RACK-2': {
+                              id: 'RACK-2',
+                              rack_code: 'WH1-RACK-2',
+                              designated_size: '100/90-17',
+                              total_shelves: 4,
+                              sections_per_shelf: 5,
+                              subsections_per_section: 2,
+                              capacity_per_subsection: 15,
+                              total_capacity: 600
+                            },
+                            'RACK-3': {
+                              id: 'RACK-3',
+                              rack_code: 'WH1-RACK-3',
+                              designated_size: '110/90-17',
+                              total_shelves: 4,
+                              sections_per_shelf: 5,
+                              subsections_per_section: 2,
+                              capacity_per_subsection: 15,
+                              total_capacity: 600
+                            },
+                            'RACK-4': {
+                              id: 'RACK-4',
+                              rack_code: 'WH1-RACK-4',
+                              designated_size: '120/80-17',
+                              total_shelves: 4,
+                              sections_per_shelf: 4,
+                              subsections_per_section: 2,
+                              capacity_per_subsection: 15,
+                              total_capacity: 480
+                            },
+                            'RACK-5': {
+                              id: 'RACK-5',
+                              rack_code: 'WH1-RACK-5',
+                              designated_size: 'General',
+                              total_shelves: 5,
+                              sections_per_shelf: 6,
+                              subsections_per_section: 2,
+                              capacity_per_subsection: 15,
+                              total_capacity: 900
+                            },
+                            'RCS': {
+                              id: 'RCS',
+                              rack_code: 'WH1-RCS',
+                              designated_size: 'Enduro 80/90-18',
+                              total_shelves: 5,
+                              sections_per_shelf: 6,
+                              subsections_per_section: 2,
+                              capacity_per_subsection: 15,
+                              total_capacity: 900
+                            }
+                          };
+                          
+                          setSelectedRackConfig(hardcodedRacks[rackId] || null);
+                        } else {
+                          setSelectedRackConfig(null);
+                        }
+                      } else {
+                        setFormData({
+                          ...formData,
+                          batchId: '',
+                          productId: '',
+                          shipmentId: '',
+                          warehouseId: '',
+                          rackId: '',
+                          rackCode: '',
+                          rackDesignatedSize: '',
+                          rackLocationId: '',
+                          shelfNumber: '',
+                          sectionNumber: '',
+                          subsectionNumber: ''
+                        });
+                        setBatchQuantity(1);
+                      }
                     }}
                     className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer bg-white"
                   >
@@ -1775,7 +1971,7 @@ export default function BarcodeGeneration() {
                   )}
                 </div>
 
-                {/* Product Display - Enhanced */}
+                {/* Product Display - Enhanced with Category, Size, and Assigned Positions */}
                 {formData.batchId && (() => {
                   const batch = batches.find(b => b.id === formData.batchId);
                   const product = batch?.products;
@@ -1789,7 +1985,7 @@ export default function BarcodeGeneration() {
                           <Package className="w-3.5 h-3.5" />
                           Product Details (Auto-filled from Batch)
                         </label>
-                        <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 shadow-sm">
+                        <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 shadow-sm space-y-3">
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div>
                               <span className="font-semibold text-emerald-800">SKU:</span>
@@ -1823,80 +2019,118 @@ export default function BarcodeGeneration() {
                     );
                   }
                   
-                  // Case 2: Batch has multiple products from shipment
+                  // Case 2: Batch has multiple products from shipment with full details
                   if (shipmentProducts && shipmentProducts.length > 0) {
                     return (
-                      <div>
-                        <label className="text-xs font-bold text-amber-900 block mb-1.5 flex items-center gap-1">
+                      <div className="space-y-3">
+                        <label className="text-xs font-bold text-amber-900 block flex items-center gap-1">
                           <Package className="w-3.5 h-3.5" />
-                          Select Product from Shipment *
+                          Products in Shipment
                         </label>
-                        <div className="space-y-2">
-                          <select
-                            value={formData.productId}
-                            onChange={(e) => setFormData({ ...formData, productId: e.target.value })}
-                            className="w-full px-3 py-2 rounded-lg border border-blue-200 text-xs focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none cursor-pointer bg-white"
-                          >
-                            <option value="" disabled>Choose a product from shipment...</option>
-                            {shipmentProducts.map((item, idx) => {
-                              // Find matching product in products list
-                              const matchingProduct = products.find(p => {
-                                const sizeDimMatch = p.dimensions === item.size;
-                                const catMatch = p.category?.toLowerCase() === item.category?.toLowerCase();
-                                return sizeDimMatch || (catMatch && p.dimensions?.includes(item.size));
-                              });
-                              
-                              return (
-                                <option key={idx} value={matchingProduct?.id || `temp-${idx}`}>
-                                  {item.category} - {item.size} ({item.quantity} units)
-                                  {matchingProduct ? ` | ${matchingProduct.sku}` : ' | No SKU Found'}
-                                </option>
-                              );
-                            })}
-                          </select>
-                          
-                          {formData.productId && (() => {
-                            const selectedProduct = products.find(p => p.id === formData.productId);
-                            if (selectedProduct) {
-                              return (
-                                <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 shadow-sm">
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
-                                    <div>
-                                      <span className="font-semibold text-blue-800">SKU:</span>
-                                      <p className="text-slate-700 font-mono mt-0.5">{selectedProduct.sku || 'N/A'}</p>
+                        
+                        {/* Product Cards - Show all products with details */}
+                        <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar">
+                          {shipmentProducts.map((item, idx) => {
+                            // Support both legacy (category/size) and new format (brand/model/dimensions)
+                            const displayName = item.product_name || `${item.brand || ''} ${item.model || ''}`.trim() || item.category || 'Unknown Product';
+                            const displaySize = item.dimensions || item.size || 'N/A';
+                            const hasPositions = item.assigned_positions && item.assigned_positions.length > 0;
+                            
+                            return (
+                              <div 
+                                key={idx}
+                                className="p-3 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 hover:border-blue-400 transition-all"
+                              >
+                                {/* Product Header */}
+                                <div className="flex items-start justify-between mb-2">
+                                  <div className="flex-1">
+                                    <div className="text-sm font-bold text-slate-900 mb-1">{displayName}</div>
+                                    {item.brand && item.model && (
+                                      <div className="flex items-center gap-2 text-[10px] mb-1">
+                                        <span className="font-semibold text-blue-700">Brand:</span>
+                                        <span className="text-slate-700">{item.brand}</span>
+                                        <span className="text-slate-300">|</span>
+                                        <span className="font-semibold text-blue-700">Model:</span>
+                                        <span className="text-slate-700">{item.model}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <span className="px-2 py-1 rounded-lg bg-blue-600 text-white text-xs font-bold">
+                                    {item.quantity} pcs
+                                  </span>
+                                </div>
+
+                                {/* Category & Size/Dimensions */}
+                                <div className="grid grid-cols-2 gap-2 mb-2">
+                                  {item.category && (
+                                    <div className="px-2 py-1.5 rounded bg-white border border-blue-200">
+                                      <span className="text-[9px] font-semibold text-blue-700 block">Category</span>
+                                      <span className="text-xs font-bold text-slate-900">{item.category}</span>
                                     </div>
-                                    <div>
-                                      <span className="font-semibold text-blue-800">Brand:</span>
-                                      <p className="text-slate-700 mt-0.5">{selectedProduct.brand || 'N/A'}</p>
-                                    </div>
-                                    <div>
-                                      <span className="font-semibold text-blue-800">Model:</span>
-                                      <p className="text-slate-700 mt-0.5">{selectedProduct.model || 'N/A'}</p>
-                                    </div>
-                                    <div>
-                                      <span className="font-semibold text-blue-800">Dimensions:</span>
-                                      <p className="text-slate-700 mt-0.5">{selectedProduct.dimensions || 'N/A'}</p>
-                                    </div>
+                                  )}
+                                  <div className="px-2 py-1.5 rounded bg-white border border-blue-200">
+                                    <span className="text-[9px] font-semibold text-blue-700 block">Size/Dimensions</span>
+                                    <span className="text-xs font-bold text-slate-900">{displaySize}</span>
                                   </div>
                                 </div>
-                              );
-                            }
-                          })()}
-                          
-                          <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
-                            <p className="text-[10px] text-amber-800">
-                              📦 <strong>{shipmentProducts.length} products</strong> available in shipment {batch?.shipments?.shipment_number}
-                            </p>
-                          </div>
+
+                                {/* SKU */}
+                                {item.sku && (
+                                  <div className="mb-2 px-2 py-1.5 rounded bg-slate-50 border border-slate-200">
+                                    <span className="text-[9px] font-semibold text-slate-600 block">SKU</span>
+                                    <span className="text-xs font-mono font-bold text-slate-900">{item.sku}</span>
+                                  </div>
+                                )}
+
+                                {/* Assigned Positions */}
+                                {hasPositions && (
+                                  <div className="mt-2 pt-2 border-t border-blue-200">
+                                    <div className="flex items-center gap-1.5 mb-1.5">
+                                      <MapPin className="w-3 h-3 text-blue-600" />
+                                      <span className="text-[10px] font-bold text-blue-900 uppercase">
+                                        {item.assigned_positions.length} Assigned Position{item.assigned_positions.length !== 1 ? 's' : ''}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {item.assigned_positions.slice(0, 3).map((pos, posIdx) => (
+                                        <span 
+                                          key={posIdx}
+                                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-white border border-blue-300 text-[10px] font-bold text-blue-700"
+                                        >
+                                          <MapPin className="w-2.5 h-2.5" />
+                                          {pos.position_code} ×{pos.quantity}
+                                        </span>
+                                      ))}
+                                      {item.assigned_positions.length > 3 && (
+                                        <span className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-[10px] font-bold text-blue-700">
+                                          +{item.assigned_positions.length - 3} more
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
+
+                        {/* Shipment Summary */}
+                        <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+                          <p className="text-[10px] text-amber-800">
+                            📦 <strong>{shipmentProducts.length} product{shipmentProducts.length !== 1 ? 's' : ''}</strong> in shipment {batch?.shipments?.shipment_number}
+                          </p>
+                        </div>
+
+                        {/* Product Selector for Barcode Generation - REMOVED, auto-selected above */}
                       </div>
                     );
                   }
                   
                   // Case 3: No product information at all
                   return (
-                    <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
-                      ⚠️ No product information available for this batch
+                    <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>⚠️ No product information available for this batch</span>
                     </div>
                   );
                 })()}
@@ -1910,132 +2144,54 @@ export default function BarcodeGeneration() {
                         Warehouse Location *
                       </label>
                       
-                      {/* Warehouse Selector */}
+                      {/* Warehouse Selector - Auto-detected */}
                       <div className="space-y-2">
-                        <select
-                          value={formData.warehouseId}
-                          onChange={async (e) => {
-                            const warehouseId = e.target.value;
-                            setFormData({
-                              ...formData,
-                              warehouseId: warehouseId,
-                              rackId: '',
-                              rackLocationId: '',
-                              shelfNumber: '',
-                              sectionNumber: '',
-                              subsectionNumber: ''
-                            });
-                            setRacks([]);
-                            setSelectedRackConfig(null);
-                            
-                            // Load racks for the selected warehouse
-                            await loadAllRacksForWarehouse(warehouseId);
-                          }}
-                          className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
-                        >
-                          <option value="" disabled>Select Warehouse...</option>
-                          {warehouses.map(wh => (
-                            <option key={wh.id} value={wh.id}>
-                              {wh.name} ({wh.code})
-                            </option>
-                          ))}
-                        </select>
+                        {formData.warehouseId ? (
+                          <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 shadow-sm">
+                            <div className="flex items-center gap-2 mb-2">
+                              <MapPin className="w-4 h-4 text-emerald-600" />
+                              <span className="text-xs font-bold text-emerald-900 uppercase">Auto-Detected Warehouse</span>
+                            </div>
+                            <div className="text-sm font-bold text-slate-900">
+                              {warehouses.find(w => w.id === formData.warehouseId)?.name || 'Unknown Warehouse'}
+                            </div>
+                            <div className="text-xs text-slate-600 mt-0.5">
+                              Code: {warehouses.find(w => w.id === formData.warehouseId)?.code || 'N/A'}
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-emerald-200 flex items-center gap-1 text-[10px] text-emerald-700">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span className="font-medium">Automatically detected from product positions</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                            ⚠️ No warehouse detected. Product positions may not have warehouse information.
+                          </div>
+                        )}
 
-                        {/* Rack Selector - HARDCODED FOR TESTING */}
-                        {formData.warehouseId && (
-                          <select
-                            value={formData.rackId}
-                            onChange={(e) => {
-                              const rackId = e.target.value;
-                              setFormData({
-                                ...formData,
-                                rackId: rackId,
-                                rackLocationId: '',
-                                shelfNumber: '',
-                                sectionNumber: '',
-                                subsectionNumber: ''
-                              });
-                              
-                              // HARDCODED: Set rack config when rack is selected
-                              if (rackId) {
-                                const hardcodedRacks = {
-                                  'RACK-1': {
-                                    id: 'RACK-1',
-                                    rack_code: 'WH1-RACK-1',
-                                    designated_size: '90/90-18',
-                                    total_shelves: 4,
-                                    sections_per_shelf: 5,
-                                    subsections_per_section: 2,
-                                    capacity_per_subsection: 15,
-                                    total_capacity: 600
-                                  },
-                                  'RACK-2': {
-                                    id: 'RACK-2',
-                                    rack_code: 'WH1-RACK-2',
-                                    designated_size: '100/90-17',
-                                    total_shelves: 4,
-                                    sections_per_shelf: 5,
-                                    subsections_per_section: 2,
-                                    capacity_per_subsection: 15,
-                                    total_capacity: 600
-                                  },
-                                  'RACK-3': {
-                                    id: 'RACK-3',
-                                    rack_code: 'WH1-RACK-3',
-                                    designated_size: '110/90-17',
-                                    total_shelves: 4,
-                                    sections_per_shelf: 5,
-                                    subsections_per_section: 2,
-                                    capacity_per_subsection: 15,
-                                    total_capacity: 600
-                                  },
-                                  'RACK-4': {
-                                    id: 'RACK-4',
-                                    rack_code: 'WH1-RACK-4',
-                                    designated_size: '120/80-17',
-                                    total_shelves: 4,
-                                    sections_per_shelf: 4,
-                                    subsections_per_section: 2,
-                                    capacity_per_subsection: 15,
-                                    total_capacity: 480
-                                  },
-                                  'RACK-5': {
-                                    id: 'RACK-5',
-                                    rack_code: 'WH1-RACK-5',
-                                    designated_size: 'General',
-                                    total_shelves: 5,
-                                    sections_per_shelf: 6,
-                                    subsections_per_section: 2,
-                                    capacity_per_subsection: 15,
-                                    total_capacity: 900
-                                  }
-                                };
-                                
-                                setSelectedRackConfig(hardcodedRacks[rackId] || null);
-                              } else {
-                                setSelectedRackConfig(null);
-                              }
-                            }}
-                            className="w-full px-3 py-2 rounded-lg border border-amber-200 text-xs focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none cursor-pointer"
-                          >
-                            <option value="" disabled>Select Rack...</option>
-                            {/* HARDCODED RACKS - Replace with API data when DB is fixed */}
-                            {racks.length > 0 ? (
-                              racks.map(rack => (
-                                <option key={rack.id} value={rack.id}>
-                                  {rack.rack_code} - {rack.designated_size} ({rack.current_count}/{rack.total_capacity} used)
-                                </option>
-                              ))
-                            ) : (
-                              <>
-                                <option value="RACK-1">WH1-RACK-1 - 90/90-18 Sawtooth (0/600 used)</option>
-                                <option value="RACK-2">WH1-RACK-2 - 100/90-17 Dual Sport (0/600 used)</option>
-                                <option value="RACK-3">WH1-RACK-3 - 110/90-17 Sawtooth (0/600 used)</option>
-                                <option value="RACK-4">WH1-RACK-4 - 120/80-17 Enduro (0/480 used)</option>
-                                <option value="RACK-5">WH1-RACK-5 - General (0/900 used)</option>
-                              </>
-                            )}
-                          </select>
+                        {/* Auto-Detected Rack */}
+                        {formData.warehouseId && formData.rackId && (
+                          <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-300 shadow-sm">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Boxes className="w-4 h-4 text-indigo-600" />
+                              <span className="text-xs font-bold text-indigo-900 uppercase">Auto-Detected Rack</span>
+                            </div>
+                            <div className="text-sm font-bold text-slate-900">
+                              {formData.rackCode || 'Unknown Rack'}
+                            </div>
+                            <div className="text-xs text-slate-600 mt-0.5">
+                              Designated Size: {formData.rackDesignatedSize || 'N/A'}
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-indigo-200 flex items-center gap-1 text-[10px] text-indigo-700">
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span className="font-medium">Automatically detected from product positions</span>
+                            </div>
+                          </div>
+                        )}
+                        {formData.warehouseId && !formData.rackId && (
+                          <div className="px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                            ⚠️ No rack detected. Product positions may not have rack information.
+                          </div>
                         )}
 
                         {/* Hierarchical Position Selectors - HARDCODED FOR TESTING */}
@@ -2157,33 +2313,21 @@ export default function BarcodeGeneration() {
                   </>
                 )}
 
-                {/* Quantity */}
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-amber-900 flex items-center gap-1">
-                    <Boxes className="w-3 h-3" />
-                    Quantity:
-                  </label>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setBatchQuantity(Math.max(1, batchQuantity - 1))}
-                      className="w-7 h-7 rounded-lg bg-white border border-amber-200 hover:bg-amber-50 flex items-center justify-center font-bold text-amber-700 text-sm"
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      value={batchQuantity}
-                      onChange={(e) => setBatchQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-14 text-center px-1 py-1 rounded-lg border border-amber-200 font-bold text-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setBatchQuantity(batchQuantity + 1)}
-                      className="w-7 h-7 rounded-lg bg-white border border-amber-200 hover:bg-amber-50 flex items-center justify-center font-bold text-amber-700 text-sm"
-                    >
-                      +
-                    </button>
+                {/* Quantity - Auto-calculated from products */}
+                <div className="px-3 py-3 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-blue-900 flex items-center gap-1">
+                      <Boxes className="w-3.5 h-3.5" />
+                      Total Quantity (Auto-Calculated)
+                    </label>
+                    <div className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md">
+                      <span className="text-2xl font-black">{batchQuantity}</span>
+                      <span className="text-xs font-semibold ml-1">pcs</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-blue-700">
+                    <CheckCircle2 className="w-3 h-3" />
+                    <span className="font-medium">Automatically calculated from all products in shipment</span>
                   </div>
                 </div>
 
@@ -2221,8 +2365,8 @@ export default function BarcodeGeneration() {
                   <div className="text-[10px] text-amber-700 flex items-start gap-1 mt-1">
                     <AlertTriangle className="w-3 h-3 flex-shrink-0 mt-0.5" />
                     <div>
-                      {!formData.warehouseId && <div>⚠️ Select warehouse</div>}
-                      {formData.warehouseId && !formData.rackId && <div>⚠️ Select rack</div>}
+                      {!formData.warehouseId && <div>⚠️ Warehouse not detected</div>}
+                      {formData.warehouseId && !formData.rackId && <div>⚠️ Rack not detected from positions</div>}
                       {formData.rackId && !formData.shelfNumber && <div>⚠️ Select shelf</div>}
                       {formData.shelfNumber && !formData.sectionNumber && <div>⚠️ Select section</div>}
                       {formData.sectionNumber && !formData.subsectionNumber && <div>⚠️ Select subsection</div>}

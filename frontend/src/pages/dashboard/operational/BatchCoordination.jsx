@@ -260,13 +260,75 @@ export default function BatchCoordination() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div>
-                        <p className="font-medium text-slate-900">
-                          {batch.products?.brand || 'N/A'}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          {batch.products?.sku || 'No SKU'}
-                        </p>
+                      <div className="space-y-2">
+                        {batch.shipments?.product_breakdown && batch.shipments.product_breakdown.length > 0 ? (
+                          <>
+                            {batch.shipments.product_breakdown.slice(0, 2).map((product, idx) => {
+                              // Support both legacy (category/size) and new format (brand/model/dimensions)
+                              const displayName = product.product_name || `${product.brand || ''} ${product.model || ''}`.trim() || product.category || 'Unknown Product';
+                              const displaySize = product.dimensions || product.size || 'N/A';
+                              const hasPositions = product.assigned_positions && product.assigned_positions.length > 0;
+                              
+                              return (
+                                <div key={idx} className="bg-gradient-to-r from-orange-50 to-red-50 rounded-lg p-2.5 border border-orange-200">
+                                  <p className="font-semibold text-slate-900 text-sm mb-1">
+                                    {displayName}
+                                  </p>
+                                  <div className="flex items-center gap-2 text-xs text-slate-600 mb-1">
+                                    <Package size={12} className="text-orange-500" />
+                                    <span>{displaySize}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-orange-600">
+                                      Qty: {product.quantity}
+                                    </span>
+                                    {hasPositions && (
+                                      <div className="flex items-center gap-1">
+                                        <MapPin size={12} className="text-blue-600" />
+                                        <span className="text-xs font-bold text-blue-700">
+                                          {product.assigned_positions.length} positions
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {/* Show first 2 positions */}
+                                  {hasPositions && product.assigned_positions.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {product.assigned_positions.slice(0, 2).map((pos, posIdx) => (
+                                        <span 
+                                          key={posIdx}
+                                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-xs font-bold"
+                                        >
+                                          <MapPin size={10} />
+                                          {pos.position_code} ×{pos.quantity}
+                                        </span>
+                                      ))}
+                                      {product.assigned_positions.length > 2 && (
+                                        <span className="text-xs text-blue-600 font-medium">
+                                          +{product.assigned_positions.length - 2} more
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {batch.shipments.product_breakdown.length > 2 && (
+                              <div className="text-xs text-slate-500 italic pl-2">
+                                +{batch.shipments.product_breakdown.length - 2} more products
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div>
+                            <p className="font-medium text-slate-900">
+                              {batch.products?.brand || 'N/A'}
+                            </p>
+                            <p className="text-sm text-slate-500">
+                              {batch.products?.sku || 'No SKU'}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -366,30 +428,95 @@ export default function BatchCoordination() {
               </div>
 
               {/* Batch Details */}
-              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                <h3 className="font-semibold text-slate-900 mb-3">Batch Details</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="bg-slate-50 rounded-lg p-4 space-y-3">
+                <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                  <Package size={18} className="text-slate-600" />
+                  Batch Details
+                </h3>
+                
+                {/* Batch Info */}
+                <div className="grid grid-cols-2 gap-4 text-sm pb-3 border-b border-slate-200">
                   <div>
-                    <p className="text-slate-600">Product:</p>
-                    <p className="font-medium text-slate-900">
-                      {selectedBatch?.products?.brand} {selectedBatch?.products?.model}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-600">SKU:</p>
-                    <p className="font-medium text-slate-900">{selectedBatch?.products?.sku}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-600">Shipment:</p>
+                    <p className="text-slate-600 text-xs uppercase font-bold mb-1">Shipment:</p>
                     <p className="font-medium text-slate-900">{selectedBatch?.shipments?.shipment_number}</p>
                   </div>
                   <div>
-                    <p className="text-slate-600">Period:</p>
+                    <p className="text-slate-600 text-xs uppercase font-bold mb-1">Period:</p>
                     <p className="font-medium text-slate-900">
                       {selectedBatch?.batch_month}/{selectedBatch?.batch_year}
                     </p>
                   </div>
                 </div>
+                
+                {/* Product Breakdown */}
+                {selectedBatch?.shipments?.product_breakdown && selectedBatch.shipments.product_breakdown.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-slate-600 uppercase mb-2">Products in this batch:</p>
+                    {selectedBatch.shipments.product_breakdown.map((product, idx) => {
+                      const displayName = product.product_name || `${product.brand || ''} ${product.model || ''}`.trim() || product.category || 'Unknown Product';
+                      const displaySize = product.dimensions || product.size || 'N/A';
+                      const hasPositions = product.assigned_positions && product.assigned_positions.length > 0;
+                      
+                      return (
+                        <div key={idx} className="bg-white rounded-lg p-3 border border-orange-200">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <p className="font-semibold text-slate-900 text-sm mb-1">{displayName}</p>
+                              <div className="flex items-center gap-2 text-xs text-slate-600 mb-1">
+                                <Package size={12} className="text-orange-500" />
+                                <span>{displaySize}</span>
+                              </div>
+                              {product.sku && (
+                                <p className="text-xs text-slate-500">SKU: {product.sku}</p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-100 text-orange-700 text-xs font-bold">
+                                {product.quantity} pcs
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Assigned Positions */}
+                          {hasPositions && (
+                            <div className="mt-2 pt-2 border-t border-slate-100">
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <MapPin size={12} className="text-blue-600" />
+                                <span className="text-xs font-bold text-blue-900">
+                                  {product.assigned_positions.length} Assigned Position{product.assigned_positions.length !== 1 ? 's' : ''}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {product.assigned_positions.map((pos, posIdx) => (
+                                  <span 
+                                    key={posIdx}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-100 text-blue-700 text-xs font-bold"
+                                  >
+                                    <MapPin size={10} />
+                                    {pos.position_code} ×{pos.quantity}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-slate-600 text-xs uppercase font-bold mb-1">Product:</p>
+                      <p className="font-medium text-slate-900">
+                        {selectedBatch?.products?.brand} {selectedBatch?.products?.model}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-600 text-xs uppercase font-bold mb-1">SKU:</p>
+                      <p className="font-medium text-slate-900">{selectedBatch?.products?.sku}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
