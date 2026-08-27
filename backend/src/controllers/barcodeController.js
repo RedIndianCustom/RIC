@@ -88,13 +88,56 @@ export async function createBarcodeController(req, res) {
 
     if (hasAssignedPositions) {
       console.log('✅ Batch has assigned positions - generating barcodes for each position');
-      
+
+      let productsWithPositions = batch.metadata.products_with_positions;
+
+      // If an explicit quantity was provided, check whether the metadata total matches.
+      // If they differ (e.g. metadata was saved with doubled quantities), scale the
+      // position quantities down so they sum exactly to the requested quantity.
+      if (quantity && Number(quantity) > 0) {
+        const requestedQty = Number(quantity);
+        const metadataTotal = productsWithPositions.reduce((sum, p) =>
+          sum + (p.assigned_positions || []).reduce((s, pos) => s + Number(pos.quantity || 0), 0), 0
+        );
+
+        console.log(`📊 Requested quantity: ${requestedQty}, Metadata total: ${metadataTotal}`);
+
+        if (metadataTotal !== requestedQty && metadataTotal > 0) {
+          console.log(`⚠️  Quantity mismatch detected! Scaling metadata positions from ${metadataTotal} → ${requestedQty}`);
+          const scaleFactor = requestedQty / metadataTotal;
+
+          productsWithPositions = productsWithPositions.map(product => ({
+            ...product,
+            assigned_positions: (product.assigned_positions || []).map(pos => ({
+              ...pos,
+              quantity: Math.round(Number(pos.quantity || 0) * scaleFactor)
+            }))
+          }));
+
+          // Fix rounding drift — add/subtract from the last position
+          const scaledTotal = productsWithPositions.reduce((sum, p) =>
+            sum + (p.assigned_positions || []).reduce((s, pos) => s + Number(pos.quantity || 0), 0), 0
+          );
+          const drift = requestedQty - scaledTotal;
+          if (drift !== 0) {
+            const lastProduct = productsWithPositions[productsWithPositions.length - 1];
+            const lastPositions = lastProduct.assigned_positions;
+            if (lastPositions && lastPositions.length > 0) {
+              lastPositions[lastPositions.length - 1].quantity =
+                Number(lastPositions[lastPositions.length - 1].quantity) + drift;
+            }
+          }
+
+          console.log(`✅ Scaled positions now sum to: ${requestedQty}`);
+        }
+      }
+
       // Generate barcodes for all products and their positions
       const result = await createBarcodesFromBatchPositions({
         batchId: batch.id,
         batchNumber: batch.batch_number,
         shipmentId: batch.shipment_id,
-        productsWithPositions: batch.metadata.products_with_positions,
+        productsWithPositions,
         warehouseCode: batch.metadata.warehouse_code
       });
 
@@ -419,6 +462,142 @@ export async function deleteBarcodeController(req, res) {
     return res.status(500).json({
       success: false,
       error: 'Failed to delete barcode'
+    });
+  }
+}
+
+/**
+ * ============================================================================
+ * BULK DELETE BARCODES CONTROLLER
+ * ============================================================================
+ * High-performance batch deletion of multiple barcodes in a single request
+ * ============================================================================
+ */
+export async function bulkDeleteBarcodesController(req, res) {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'ids array is required and must not be empty'
+      });
+    }
+
+    console.log(`🗑️ Bulk deleting ${ids.length} barcodes...`);
+
+    // 1. Fetch barcodes with inventory_unit info in chunked queries
+    const chunkSize = 200;
+    const allBarcodeData = [];
+
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const { data, error } = await supabaseAdmin
+        .from('barcodes')
+        .select(`
+          id,
+          inventory_unit_id,
+          inventory_units!barcodes_inventory_unit_id_fkey (
+            warehouse_id,
+            rack
+          )
+        `)
+        .in('id', chunk);
+
+      if (error) {
+        console.error('Error fetching barcodes for bulk delete:', error);
+        throw error;
+      }
+      if (data) {
+        allBarcodeData.push(...data);
+      }
+    }
+
+    // 2. Identify inventory units and affected racks
+    const inventoryUnitIds = allBarcodeData
+      .map(b => b.inventory_unit_id)
+      .filter(Boolean);
+
+    const affectedRacks = new Map();
+    for (const item of allBarcodeData) {
+      const wId = item.inventory_units?.warehouse_id;
+      const rCode = item.inventory_units?.rack;
+      if (wId && rCode) {
+        const key = `${wId}::${rCode}`;
+        if (!affectedRacks.has(key)) {
+          affectedRacks.set(key, { warehouseId: wId, rackCode: rCode });
+        }
+      }
+    }
+
+    // 3. Delete barcodes in chunks
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const { error: delError } = await supabaseAdmin
+        .from('barcodes')
+        .delete()
+        .in('id', chunk);
+
+      if (delError) {
+        console.error('Error batch deleting barcodes:', delError);
+        throw delError;
+      }
+    }
+
+    console.log(`✅ ${ids.length} barcodes deleted from database`);
+
+    // 4. Clear/remove associated inventory units in chunks
+    if (inventoryUnitIds.length > 0) {
+      for (let i = 0; i < inventoryUnitIds.length; i += chunkSize) {
+        const chunk = inventoryUnitIds.slice(i, i + chunkSize);
+        await supabaseAdmin
+          .from('inventory_units')
+          .delete()
+          .in('id', chunk);
+      }
+      console.log(`✅ Cleared ${inventoryUnitIds.length} inventory units`);
+    }
+
+    // 5. Update rack counts for all affected racks
+    for (const { warehouseId, rackCode } of affectedRacks.values()) {
+      try {
+        const { count, error: countError } = await supabaseAdmin
+          .from('barcodes')
+          .select(`
+            id,
+            inventory_units!barcodes_inventory_unit_id_fkey!inner (
+              warehouse_id,
+              rack
+            )
+          `, { count: 'exact', head: true })
+          .eq('inventory_units.warehouse_id', warehouseId)
+          .eq('inventory_units.rack', rackCode)
+          .eq('status', 'active');
+
+        if (!countError) {
+          await supabaseAdmin
+            .from('rack_configurations')
+            .update({ current_count: count || 0 })
+            .eq('warehouse_id', warehouseId)
+            .eq('rack_code', rackCode);
+
+          console.log(`📊 Updated rack count for ${rackCode}: ${count || 0}`);
+        }
+      } catch (err) {
+        console.warn(`⚠️ Failed updating rack count for ${rackCode}:`, err.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Successfully deleted ${ids.length} barcode(s)`,
+      count: ids.length
+    });
+  } catch (error) {
+    console.error('❌ Bulk delete barcodes error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to bulk delete barcodes'
     });
   }
 }

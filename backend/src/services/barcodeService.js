@@ -369,23 +369,12 @@ export async function createBarcodes({
         const qrCodeData = await QRCode.toDataURL(
           barcode.traceability_url,
           {
-            errorCorrectionLevel: 'H', // HIGH error correction for better scanning
-            margin: 0, // Remove border/margin
-            width: 512, // Higher resolution (was 300)
-            color: {
-              dark: '#000000', // Pure black for better contrast
-              light: '#FFFFFF' // Pure white background
-            },
-            scale: 8, // Higher scale for print quality
-            type: 'image/png' // PNG for lossless quality
+            errorCorrectionLevel: 'M', // Medium error correction - standard & fast
+            margin: 1,
+            width: 240,
+            type: 'image/png'
           }
         );
-
-        // Update barcode with QR code data
-        await supabaseAdmin
-          .from('barcodes')
-          .update({ qr_code_data: qrCodeData })
-          .eq('id', barcode.barcode_id);
 
         return {
           ...barcode,
@@ -398,7 +387,22 @@ export async function createBarcodes({
     })
   );
 
-  console.log(`✅ QR codes generated successfully`);
+  // Batch update barcodes with QR code data in controlled chunks
+  const qrUpdates = barcodesWithQR.filter(b => b.qr_code_data);
+  const CHUNK_SIZE = 50;
+  for (let i = 0; i < qrUpdates.length; i += CHUNK_SIZE) {
+    const chunk = qrUpdates.slice(i, i + CHUNK_SIZE);
+    await Promise.all(
+      chunk.map(b =>
+        supabaseAdmin
+          .from('barcodes')
+          .update({ qr_code_data: b.qr_code_data })
+          .eq('id', b.barcode_id)
+      )
+    );
+  }
+
+  console.log(`✅ QR codes generated and saved successfully`);
 
   // ---------------------------------------------------------
   // 5. RETURN COMPLETE RESULT

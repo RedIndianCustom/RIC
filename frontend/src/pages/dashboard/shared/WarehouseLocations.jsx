@@ -110,10 +110,16 @@ const STATUS_OPTIONS = [
     color: 'text-green-600 bg-green-50 border-green-200',
   },
   {
-    value: 'full',
-    label: 'Full',
+    value: 'almost_full',
+    label: 'Almost Full',
     Icon: AlertCircle,
     color: 'text-amber-600 bg-amber-50 border-amber-200',
+  },
+  {
+    value: 'full',
+    label: 'Full',
+    Icon: XCircle,
+    color: 'text-red-600 bg-red-50 border-red-200',
   },
   {
     value: 'empty',
@@ -125,7 +131,7 @@ const STATUS_OPTIONS = [
     value: 'maintenance',
     label: 'Maintenance',
     Icon: Wrench,
-    color: 'text-red-600 bg-red-50 border-red-200',
+    color: 'text-purple-600 bg-purple-50 border-purple-200',
   },
 ];
 
@@ -309,6 +315,19 @@ function capacityColor(current, capacity) {
   if (pct >= 70) return 'text-amber-600';
 
   return 'text-green-600';
+}
+
+
+function getAutoStatus(current, capacity) {
+  if (!capacity) return 'empty';
+  
+  const pct = (current / capacity) * 100;
+  
+  if (pct >= 100) return 'full';
+  if (pct >= 90) return 'almost_full';
+  if (pct === 0) return 'empty';
+  
+  return 'active';
 }
 
 
@@ -2022,14 +2041,17 @@ export default function WarehouseLocations() {
     active:
       'bg-green-100 text-green-700',
 
-    full:
+    almost_full:
       'bg-amber-100 text-amber-700',
+
+    full:
+      'bg-red-100 text-red-700',
 
     empty:
       'bg-slate-100 text-slate-600',
 
     maintenance:
-      'bg-red-100 text-red-700',
+      'bg-purple-100 text-purple-700',
 
   }[status] ||
     'bg-slate-100 text-slate-600');
@@ -2620,45 +2642,45 @@ export default function WarehouseLocations() {
 
                       <div className="overflow-x-auto">
 
-                        <table className="w-full text-left text-sm">
+                        <table className="w-full text-left" style={{ fontSize: '13px' }}>
 
-                          <thead className="border-b border-slate-100 bg-white text-xs font-bold uppercase tracking-wider text-slate-400">
+                          <thead className="border-b border-slate-100 bg-white text-xs font-bold uppercase tracking-wider text-slate-400" style={{ height: '52px' }}>
 
                             <tr>
 
-                              <th className="px-5 py-2.5">
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
                                 Rack Code
                               </th>
 
-                              <th className="px-5 py-2.5">
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
                                 Physical Location
                               </th>
 
-                              <th className="px-5 py-2.5">
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
                                 Configuration
                               </th>
 
-                              <th className="px-5 py-2.5">
-                                Tire Sizes
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
+                                Total Tires
                               </th>
 
-                              <th className="px-5 py-2.5">
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
                                 Available Positions
                               </th>
 
-                              <th className="px-5 py-2.5">
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
                                 Capacity
                               </th>
 
-                              <th className="px-5 py-2.5">
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
                                 Utilization
                               </th>
 
-                              <th className="px-5 py-2.5">
+                              <th className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
                                 Status
                               </th>
 
-                              <th className="px-5 py-2.5 text-right">
+                              <th className="px-3 py-2.5 text-right" style={{ padding: '10px 12px' }}>
                                 Actions
                               </th>
 
@@ -2791,21 +2813,22 @@ export default function WarehouseLocations() {
                                     <tr
                                       key={location.id}
                                       className="transition-colors hover:bg-blue-50/30"
+                                      style={{ height: '88px' }}
                                     >
 
                                       {/* =================================================
                                           RACK CODE
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
                                         <div className="flex flex-col gap-0.5">
 
-                                          <span className="font-mono text-xs font-bold text-blue-700">
+                                          <span className="whitespace-nowrap font-mono font-bold text-blue-700" style={{ fontSize: '13px' }}>
                                             {location.code}
                                           </span>
 
-                                          <span className="text-[10px] text-slate-400">
+                                          <span className="text-slate-400" style={{ fontSize: '11px' }}>
                                             {calcStoragePositions({
                                               sectionsPerRack:
                                                 sections,
@@ -2827,7 +2850,7 @@ export default function WarehouseLocations() {
                                           PHYSICAL LOCATION
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
                                         <div className="flex items-center gap-2">
 
@@ -2838,14 +2861,14 @@ export default function WarehouseLocations() {
 
                                           <div>
 
-                                            <p className="text-xs font-semibold text-slate-700">
+                                            <p className="font-semibold text-slate-700" style={{ fontSize: '13px' }}>
                                               Row{' '}
                                               {padNumber(
                                                 rowNumber
                                               )}
                                             </p>
 
-                                            <p className="text-xs text-slate-500">
+                                            <p className="text-slate-500" style={{ fontSize: '11px' }}>
                                               Rack{' '}
                                               {padNumber(
                                                 rackNumber
@@ -2863,9 +2886,9 @@ export default function WarehouseLocations() {
                                           CONFIGURATION
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
-                                        <div className="space-y-0.5 text-xs">
+                                        <div className="space-y-0.5" style={{ fontSize: '13px' }}>
 
                                           <div className="font-medium text-slate-700">
                                             {sections}
@@ -2881,7 +2904,7 @@ export default function WarehouseLocations() {
                                             Sub
                                           </div>
 
-                                          <div className="font-semibold text-emerald-700">
+                                          <div className="font-semibold text-emerald-700" style={{ fontSize: '11px' }}>
                                             {tires}
                                             {' '}
                                             max/subsection
@@ -2893,57 +2916,59 @@ export default function WarehouseLocations() {
 
 
                                       {/* =================================================
-                                          TIRE SIZES
+                                          TOTAL TIRES
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
-                                        {tireSummary.length === 0 ? (
+                                        {(() => {
+                                          const tireSummary = getRackTireSummary(location);
+                                          const totalTires = tireSummary.reduce((sum, [_, qty]) => sum + qty, 0);
 
-                                          /* ---- empty state: single inline button ---- */
-                                          <button
-                                            type="button"
-                                            onClick={() => openPositions(location)}
-                                            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-400 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
-                                          >
-                                            <Plus size={10} />
-                                            Assign Tire
-                                          </button>
+                                          return (
+                                            <div className="flex items-center gap-3">
+                                              {totalTires === 0 ? (
+                                                /* ---- empty state: single inline button ---- */
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openPositions(location)}
+                                                  className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-300 bg-slate-50 px-3 text-slate-400 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                                                  style={{ height: '34px', fontSize: '11px', fontWeight: 500 }}
+                                                >
+                                                  <Plus size={10} />
+                                                  Assign Tire
+                                                </button>
+                                              ) : (
+                                                /* ---- filled state: show total and View Tires button ---- */
+                                                <>
+                                                  <div className="flex items-center gap-2">
+                                                    <div className="flex items-center justify-center rounded-lg bg-blue-100" style={{ height: '40px', width: '40px' }}>
+                                                      <Package size={16} className="text-blue-600" />
+                                                    </div>
+                                                    <div>
+                                                      <p className="font-bold text-blue-700" style={{ fontSize: '16px' }}>
+                                                        {totalTires.toLocaleString()}
+                                                      </p>
+                                                      <p className="text-slate-500" style={{ fontSize: '11px' }}>
+                                                        {tireSummary.length} tire size{tireSummary.length !== 1 ? 's' : ''}
+                                                      </p>
+                                                    </div>
+                                                  </div>
 
-                                        ) : (
-
-                                          /* ---- filled state ---- */
-                                          <div className="flex flex-wrap items-center gap-1">
-
-                                            {/* show 2 badges max */}
-                                            {tireSummary.slice(0, 2).map(([size, qty], idx) => (
-                                              <TireSizeBadge
-                                                key={size}
-                                                tireSize={size}
-                                                quantity={qty}
-                                                colorIndex={idx}
-                                              />
-                                            ))}
-
-                                            {/* single pill: overflow count + add more */}
-                                            <button
-                                              type="button"
-                                              onClick={() => openPositions(location)}
-                                              title="View all tire sizes or add more"
-                                              className="inline-flex items-center gap-1 rounded-full border border-dashed border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-600 transition-all hover:border-blue-400 hover:bg-blue-100 hover:text-blue-800"
-                                            >
-                                              {tireSummary.length > 2 && (
-                                                <span className="mr-0.5 text-blue-500">
-                                                  +{tireSummary.length - 2}
-                                                </span>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => openPositions(location)}
+                                                    className="ml-1 inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2 font-semibold text-blue-700 transition-all hover:border-blue-400 hover:bg-blue-100 hover:shadow-sm"
+                                                    style={{ height: '26px', fontSize: '11px' }}
+                                                  >
+                                                    <Eye size={10} />
+                                                    View Tires
+                                                  </button>
+                                                </>
                                               )}
-                                              <Plus size={9} />
-                                              {tireSummary.length > 2 ? 'more' : 'Add more'}
-                                            </button>
-
-                                          </div>
-
-                                        )}
+                                            </div>
+                                          );
+                                        })()}
 
                                       </td>
 
@@ -2952,37 +2977,38 @@ export default function WarehouseLocations() {
                                           AVAILABLE POSITIONS
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
                                         <button
                                           type="button"
                                           onClick={() => openAvailablePositions(location)}
-                                          className="group flex min-w-[150px] items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2 text-left transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-sm"
+                                          className="group flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-2.5 py-1.5 text-left transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-sm"
+                                          style={{ minWidth: '130px', minHeight: '46px' }}
                                           title="View available storage positions"
                                         >
-                                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-600 shadow-sm ring-1 ring-emerald-100">
-                                            <MapPin size={14} />
+                                          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white text-emerald-600 shadow-sm ring-1 ring-emerald-100">
+                                            <MapPin size={12} />
                                           </div>
 
                                           <div className="min-w-0 flex-1">
                                             {positionAvailability.loaded ? (
                                               <>
-                                                <p className="text-sm font-bold text-emerald-700">
+                                                <p className="font-bold text-emerald-700" style={{ fontSize: '13px' }}>
                                                   {positionAvailability.available}
-                                                  <span className="ml-1 text-xs font-medium text-emerald-500">
+                                                  <span className="ml-1 font-medium text-emerald-500" style={{ fontSize: '11px' }}>
                                                     available
                                                   </span>
                                                 </p>
-                                                <p className="text-[10px] text-slate-500">
+                                                <p className="text-slate-500" style={{ fontSize: '11px' }}>
                                                   {positionAvailability.available} / {positionAvailability.total} positions
                                                 </p>
                                               </>
                                             ) : (
                                               <>
-                                                <p className="text-xs font-semibold text-slate-500">
+                                                <p className="font-semibold text-slate-500" style={{ fontSize: '11px' }}>
                                                   Loading positions...
                                                 </p>
-                                                <p className="text-[10px] text-slate-400">
+                                                <p className="text-slate-400" style={{ fontSize: '11px' }}>
                                                   {positionAvailability.total.toLocaleString()} total positions
                                                 </p>
                                               </>
@@ -3002,13 +3028,14 @@ export default function WarehouseLocations() {
                                           CAPACITY
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
                                         <span
-                                          className={`text-sm font-semibold ${capacityColor(
+                                          className={`font-semibold ${capacityColor(
                                             location.current_stock,
                                             location.capacity
                                           )}`}
+                                          style={{ fontSize: '13px' }}
                                         >
                                           {Number(
                                             location.current_stock ||
@@ -3016,7 +3043,7 @@ export default function WarehouseLocations() {
                                           ).toLocaleString()}
                                         </span>
 
-                                        <span className="text-xs text-slate-400">
+                                        <span className="text-slate-400" style={{ fontSize: '11px' }}>
                                           {' '}
                                           /
                                           {' '}
@@ -3033,11 +3060,11 @@ export default function WarehouseLocations() {
                                           UTILIZATION
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
                                         <div className="flex items-center gap-2">
 
-                                          <div className="h-2 w-20 overflow-hidden rounded-full bg-slate-200">
+                                          <div className="overflow-hidden rounded-full bg-slate-200" style={{ height: '8px', width: '100px' }}>
 
                                             <div
                                               className={`h-full rounded-full ${
@@ -3057,7 +3084,7 @@ export default function WarehouseLocations() {
 
                                           </div>
 
-                                          <span className="text-xs text-slate-500">
+                                          <span className="text-slate-500" style={{ fontSize: '13px' }}>
                                             {locPct}%
                                           </span>
 
@@ -3070,25 +3097,25 @@ export default function WarehouseLocations() {
                                           STATUS
                                       ================================================= */}
 
-                                      <td className="px-5 py-4">
+                                      <td className="px-3 py-2.5" style={{ padding: '10px 12px' }}>
 
                                         <span
-                                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadge(
-                                            location.status
+                                          className={`inline-flex rounded-full px-3 py-1.5 font-medium ${statusBadge(
+                                            getAutoStatus(location.current_stock, location.capacity)
                                           )}`}
+                                          style={{ minWidth: '65px', height: '32px', fontSize: '12px', alignItems: 'center', justifyContent: 'center' }}
                                         >
-                                          {(location.status ||
-                                            'unknown')
-                                            .charAt(
-                                              0
-                                            )
-                                            .toUpperCase() +
-                                            (
-                                              location.status ||
-                                              'unknown'
-                                            ).slice(
-                                              1
-                                            )}
+                                          {(() => {
+                                            const autoStatus = getAutoStatus(location.current_stock, location.capacity);
+                                            const statusLabels = {
+                                              active: 'Active',
+                                              almost_full: 'Almost Full',
+                                              full: 'Full',
+                                              empty: 'Empty',
+                                              maintenance: 'Maintenance'
+                                            };
+                                            return statusLabels[autoStatus] || 'Unknown';
+                                          })()}
                                         </span>
 
                                       </td>
@@ -3098,7 +3125,7 @@ export default function WarehouseLocations() {
                                           ACTIONS
                                       ================================================= */}
 
-                                      <td className="px-5 py-4 text-right">
+                                      <td className="px-3 py-2.5 text-right" style={{ padding: '10px 12px' }}>
 
                                         <div className="flex justify-end gap-1.5">
 
@@ -3964,15 +3991,39 @@ export default function WarehouseLocations() {
                 </div>
               )}
 
-              {/* Quick edit hint */}
-              {!bulkMode && (
-                <div className="mt-3 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                  <Zap size={13} />
-                  <span>
-                    💡 <strong>Quick tip:</strong> Click on any quantity number to edit it directly!
-                  </span>
-                </div>
-              )}
+              {/* Products in rack */}
+              {!bulkMode && (() => {
+                const tireSummary = getRackTireSummary(selectedRack);
+                return (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Products in Rack
+                    </p>
+                    {tireSummary.length === 0 ? (
+                      <p className="text-xs italic text-slate-400">No tires assigned yet</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {tireSummary.map(([tireName, qty], idx) => {
+                          const palette = TIRE_BADGE_PALETTE[idx % TIRE_BADGE_PALETTE.length];
+                          return (
+                            <span
+                              key={tireName}
+                              title={`${tireName} — ${qty.toLocaleString()} tires`}
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm ${palette.badge}`}
+                            >
+                              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${palette.pill}`} />
+                              <span>{tireName}</span>
+                              <span className={`inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${palette.pill}`}>
+                                {qty.toLocaleString()}
+                              </span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
             </div>
 

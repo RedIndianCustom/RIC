@@ -74,3 +74,15 @@ body {
     width: 4px;
   }
 }
+
+/* ============================================================================
+   MODAL BACKDROP BLUR
+   When a modal is open, blur + dim the page content behind it.
+   We target #root directly so the fixed modal overlay is NOT blurred.
+   ============================================================================ */
+body.modal-open #root {
+  filter: blur(4px) brightness(0.7);
+  transition: filter 0.2s ease;
+  pointer-events: none;
+  user-select: none;
+}

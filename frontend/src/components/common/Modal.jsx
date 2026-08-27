@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 /**
@@ -21,14 +22,21 @@ export default function Modal({ isOpen, title, onClose, children, footer, size =
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isOpen, onClose]);
 
-  // Lock body scroll while open
+  // Lock body scroll + add blur class when open.
+  // The blur is applied via CSS to #root (see index.css: body.modal-open #root).
+  // The modal portal renders into document.body — outside #root — so it stays sharp.
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
+      document.body.classList.add('modal-open');
     } else {
       document.body.style.overflow = '';
+      document.body.classList.remove('modal-open');
     }
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = '';
+      document.body.classList.remove('modal-open');
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -40,11 +48,10 @@ export default function Modal({ isOpen, title, onClose, children, footer, size =
     xl: 'max-w-xl',
   }[size] ?? 'max-w-md';
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/75 px-4 backdrop-blur-lg"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
       onClick={onClose}
-      style={{ backdropFilter: 'blur(12px)' }}
     >
       <div
         className={`w-full ${maxW} rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col max-h-[90vh]`}
@@ -78,6 +85,7 @@ export default function Modal({ isOpen, title, onClose, children, footer, size =
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
