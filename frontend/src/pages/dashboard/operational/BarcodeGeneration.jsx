@@ -112,7 +112,12 @@ export default function BarcodeGeneration() {
     if (formData.rackId && formData.shelfNumber && formData.sectionNumber && formData.subsectionNumber) {
       const selectedRack = racks.find(r => r.id === formData.rackId);
       if (selectedRack) {
-        const positionCode = `${selectedRack.rack_code}-S${formData.shelfNumber}-SEC${formData.sectionNumber}-SUB${formData.subsectionNumber}`;
+        // Format: RACK-S##-SH##-SUB##
+        // where S## is Section, SH## is Shelf, SUB## is Subsection
+        const sectionPadded = String(formData.sectionNumber).padStart(2, '0');
+        const shelfPadded = String(formData.shelfNumber).padStart(2, '0');
+        const subsectionPadded = String(formData.subsectionNumber).padStart(2, '0');
+        const positionCode = `${selectedRack.rack_code}-S${sectionPadded}-SH${shelfPadded}-SUB${subsectionPadded}`;
         setAvailablePositionCode(positionCode);
       }
     } else {
