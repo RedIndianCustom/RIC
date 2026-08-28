@@ -233,6 +233,7 @@ export default function BarcodeGeneration() {
 
   const loadProducts = async () => {
     try {
+      // Fetch ALL products without any filter
       const { data } = await api.get('/products');
       
       if (!data?.products || data.products.length === 0) {
@@ -249,6 +250,7 @@ export default function BarcodeGeneration() {
         return;
       }
       
+      // Display ALL products - no filtering
       setProducts(data.products);
     } catch (err) {
       console.error('Product load error:', err);

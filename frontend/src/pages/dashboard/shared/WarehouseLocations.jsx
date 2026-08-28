@@ -665,6 +665,7 @@ export default function WarehouseLocations() {
     if (products.length > 0) return;           // already loaded
     setLoadingProducts(true);
     try {
+      // Fetch ALL products without any filter
       const { data } = await api.get('/products');
       setProducts(data.products || []);
     } catch (err) {

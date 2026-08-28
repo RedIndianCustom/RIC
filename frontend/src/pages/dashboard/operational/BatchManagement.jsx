@@ -170,7 +170,7 @@ export default function BatchManagement() {
       const [batchesData, shipmentsData, productsData] = await Promise.all([
         fetchBatches({ status: statusFilter }),
         fetchShipments(), // Remove RECEIVED filter to show ALL shipments
-        fetchProducts({ status: 'In Stock' })
+        fetchProducts() // Fetch ALL products without any filter
       ]);
       
       setBatches(batchesData.batches || []);

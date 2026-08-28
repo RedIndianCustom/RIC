@@ -31,6 +31,12 @@ export default function ShipmentRegistration() {
   const [productSearch, setProductSearch] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  
+  // NEW: Two-step selection
+  const [showBrandModal, setShowBrandModal] = useState(false);
+  const [showSizeModal, setShowSizeModal] = useState(false);
+  const [selectedBrand, setSelectedBrand] = useState(null);
+  const [availableSizes, setAvailableSizes] = useState([]);
 
   // Position picker state
   const [showPositionModal, setShowPositionModal] = useState(false);
@@ -108,6 +114,75 @@ export default function ShipmentRegistration() {
     } finally {
       setLoadingProducts(false);
     }
+  };
+
+  /* ==========================================================================
+     GET UNIQUE BRAND/MODEL COMBINATIONS
+  ========================================================================== */
+
+  const getUniqueBrands = () => {
+    const brandMap = new Map();
+    
+    // Define specific brand order we want to show
+    const brandOrder = [
+      'Red Indian Customs Street Dual Sport',
+      'Red Indian Customs Dual Sport XT',
+      'Red Indian Customs Classic Sawtooth',
+      'Red Indian Customs Enduro Trail',
+      'Red Indian Customs Armor XT',
+      'Red Indian Customs Armor ADV',
+      'Red Indian Customs ARMOR ST',
+      'Red Indian Customs ARMOR ST-X'
+    ];
+    
+    products.forEach(product => {
+      // Combine brand and model as unique key
+      const brandModel = `${product.brand} ${product.model}`.trim();
+      
+      if (!brandMap.has(brandModel)) {
+        brandMap.set(brandModel, {
+          brand: product.brand,
+          model: product.model,
+          fullName: brandModel,
+          count: 0
+        });
+      }
+      
+      const entry = brandMap.get(brandModel);
+      entry.count += 1;
+    });
+    
+    // Convert to array and sort by custom order, then alphabetically
+    const brandsArray = Array.from(brandMap.values());
+    
+    return brandsArray.sort((a, b) => {
+      const aIndex = brandOrder.indexOf(a.fullName);
+      const bIndex = brandOrder.indexOf(b.fullName);
+      
+      // If both are in the custom order, sort by that order
+      if (aIndex !== -1 && bIndex !== -1) {
+        return aIndex - bIndex;
+      }
+      
+      // If only a is in custom order, it comes first
+      if (aIndex !== -1) return -1;
+      
+      // If only b is in custom order, it comes first
+      if (bIndex !== -1) return 1;
+      
+      // Otherwise, sort alphabetically
+      return a.fullName.localeCompare(b.fullName);
+    });
+  };
+
+  /* ==========================================================================
+     GET SIZES FOR SELECTED BRAND
+  ========================================================================== */
+
+  const getSizesForBrand = (brandModel) => {
+    return products.filter(p => 
+      `${p.brand} ${p.model}`.trim() === brandModel
+    );
   };
 
   /* ==========================================================================
@@ -497,18 +572,34 @@ export default function ShipmentRegistration() {
   ];
 
   const addProductLine = () => {
-    // Open product picker modal instead of adding empty line
+    // Open brand selection modal (Step 1)
     loadProducts();
-    setSelectedProduct(null);
-    setProductSearch('');
-    setShowProductDropdown(true);
+    setSelectedBrand(null);
+    setAvailableSizes([]);
+    setShowBrandModal(true);
   };
 
   const openProductPicker = () => {
+    // Open brand selection modal (Step 1)
     loadProducts();
-    setSelectedProduct(null);
-    setProductSearch('');
-    setShowProductDropdown(true);
+    setSelectedBrand(null);
+    setAvailableSizes([]);
+    setShowBrandModal(true);
+  };
+
+  const selectBrand = (brandModel) => {
+    setSelectedBrand(brandModel);
+    const sizes = getSizesForBrand(brandModel);
+    setAvailableSizes(sizes);
+    setShowBrandModal(false);
+    setShowSizeModal(true);
+  };
+
+  const selectSize = (product) => {
+    setQuantityModalProduct(product);
+    setQuantityInput('');
+    setShowSizeModal(false);
+    setShowQuantityModal(true);
   };
 
   const addProductWithPositions = (productData) => {
@@ -1158,7 +1249,205 @@ export default function ShipmentRegistration() {
         </AnimatePresence>
 
         {/* ============================================ */}
-        {/* PRODUCT PICKER MODAL */}
+        {/* STEP 1: BRAND/MODEL SELECTION MODAL */}
+        {/* ============================================ */}
+        <AnimatePresence>
+          {showBrandModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+              onClick={() => setShowBrandModal(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
+              >
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-emerald-600 to-green-600 px-6 py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="p-2 bg-white/20 backdrop-blur-sm rounded-xl">
+                        <Package className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white">Step 1: Select Product Brand</h3>
+                        <p className="text-emerald-100 text-xs">Choose a tire brand/model first</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowBrandModal(false)}
+                      className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                    >
+                      <X className="h-5 w-5 text-white" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Brand List */}
+                <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
+                  {loadingProducts ? (
+                    <div className="text-center py-8">
+                      <RefreshCw className="h-8 w-8 text-emerald-500 animate-spin mx-auto mb-3" />
+                      <p className="text-sm text-slate-600">Loading brands...</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3">
+                      {getUniqueBrands().map((brandInfo) => (
+                        <motion.button
+                          key={brandInfo.fullName}
+                          whileHover={{ scale: 1.02, x: 4 }}
+                          whileTap={{ scale: 0.98 }}
+                          type="button"
+                          onClick={() => selectBrand(brandInfo.fullName)}
+                          className="w-full flex items-center justify-between p-4 rounded-xl border-2 border-slate-200 hover:border-emerald-400 hover:bg-gradient-to-r hover:from-emerald-50 hover:to-green-50 transition-all text-left group"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-100 to-green-100 group-hover:from-emerald-200 group-hover:to-green-200 transition-all">
+                              <Layers className="h-6 w-6 text-emerald-600" />
+                            </div>
+                            <div>
+                              <p className="font-bold text-lg text-slate-800 group-hover:text-emerald-700 transition-colors">
+                                {brandInfo.fullName}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                {brandInfo.count} size{brandInfo.count !== 1 ? 's' : ''} available
+                              </p>
+                            </div>
+                          </div>
+                          <ChevronRight className="h-5 w-5 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                        </motion.button>
+                      ))}
+                      
+                      {getUniqueBrands().length === 0 && (
+                        <div className="text-center py-12">
+                          <Package className="h-12 w-12 text-slate-400 mx-auto mb-3" />
+                          <p className="text-sm text-slate-600 font-medium">No products found</p>
+                          <p className="text-xs text-slate-500 mt-1">Please add products to the catalog first</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ============================================ */}
+        {/* STEP 2: SIZE SELECTION MODAL */}
+        {/* ============================================ */}
+        <AnimatePresence>
+          {showSizeModal && selectedBrand && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+              onClick={() => {
+                setShowSizeModal(false);
+                setShowBrandModal(true); // Go back to brand selection
+              }}
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden"
+              >
+                {/* Modal Header */}
+                <div className="bg-gradient-to-r from-emerald-600 to-green-600 px-6 py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <button
+                        onClick={() => {
+                          setShowSizeModal(false);
+                          setShowBrandModal(true);
+                        }}
+                        className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                      >
+                        <ChevronRight className="h-5 w-5 text-white transform rotate-180" />
+                      </button>
+                      <div className="p-2 bg-white/20 backdrop-blur-sm rounded-xl">
+                        <Tag className="h-5 w-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-white">Step 2: Select Tire Size</h3>
+                        <p className="text-emerald-100 text-xs">{selectedBrand} - Choose a size</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowSizeModal(false);
+                        setShowBrandModal(false);
+                      }}
+                      className="p-2 hover:bg-white/20 rounded-xl transition-colors"
+                    >
+                      <X className="h-5 w-5 text-white" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Size List */}
+                <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {availableSizes.map((product) => (
+                      <motion.button
+                        key={product.id}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.97 }}
+                        type="button"
+                        onClick={() => selectSize(product)}
+                        className="flex flex-col items-start p-4 rounded-xl border-2 border-slate-200 hover:border-emerald-400 hover:bg-gradient-to-br hover:from-emerald-50 hover:to-green-50 transition-all text-left group"
+                      >
+                        <div className="flex items-center gap-3 w-full mb-2">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-100 to-green-100 group-hover:from-emerald-200 group-hover:to-green-200 transition-all flex-shrink-0">
+                            <Package className="h-5 w-5 text-emerald-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-lg text-emerald-700 group-hover:text-emerald-800 transition-colors">
+                              {product.dimensions}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                            {product.sku}
+                          </span>
+                          {product.stock_quantity !== undefined && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                              product.stock_quantity > 0 
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}>
+                              Stock: {product.stock_quantity}
+                            </span>
+                          )}
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+                  
+                  {availableSizes.length === 0 && (
+                    <div className="text-center py-12">
+                      <Tag className="h-12 w-12 text-slate-400 mx-auto mb-3" />
+                      <p className="text-sm text-slate-600 font-medium">No sizes available</p>
+                      <p className="text-xs text-slate-500 mt-1">This brand has no tire sizes in the catalog</p>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ============================================ */}
+        {/* OLD PRODUCT PICKER MODAL (KEPT FOR FALLBACK) */}
         {/* ============================================ */}
         <AnimatePresence>
           {showProductDropdown && (
