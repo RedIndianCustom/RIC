@@ -347,7 +347,7 @@ export default function ScanBarcode() {
         height: 100% !important;
         display: flex !important;
         align-items: center !important;
-        justify-content: center !important;
+        justify-center: center !important;
         position: relative !important;
       }
       #${scannerRegionId} video {
@@ -369,7 +369,7 @@ export default function ScanBarcode() {
         max-width: 1100px;
         aspect-ratio: 4 / 3;
         overflow: hidden;
-        border-radius: 14px;
+        border-radius: 16px;
         margin: 0 auto;
       }
       
@@ -401,14 +401,18 @@ export default function ScanBarcode() {
       }
       
       /* Smooth scan animation */
-      @keyframes scan {
-        0%, 100% { top: 10%; opacity: 0; }
-        50% { top: 50%; opacity: 1; }
+      @keyframes scanPulse {
+        0%, 100% { opacity: 0.4; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.05); }
       }
       
-      @keyframes pulse-glow {
-        0%, 100% { box-shadow: 0 0 20px rgba(234, 179, 8, 0.4); }
-        50% { box-shadow: 0 0 40px rgba(234, 179, 8, 0.8); }
+      .scan-corner {
+        animation: scanPulse 2s ease-in-out infinite;
+      }
+      
+      @keyframes glow {
+        0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.5); }
+        50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.8); }
       }
     `;
     document.head.appendChild(style);
@@ -515,16 +519,18 @@ export default function ScanBarcode() {
       // Error callback - now with feedback
       const onScanError = (errorMessage) => {
         // Count scan attempts to show activity
-        setScanAttempts(prev => prev + 1);
+        setScanAttempts(prev => {
+          const newCount = prev + 1;
+          // Only log errors occasionally to avoid spam
+          if (newCount % 50 === 0) {
+            console.log('🔍 Scanner active, attempts:', newCount);
+          }
+          return newCount;
+        });
         
         // Update status to show scanner is actively looking
         if (scanningStatus !== 'scanning' && scanningStatus !== 'detected' && scanningStatus !== 'processing') {
           setScanningStatus('scanning');
-        }
-        
-        // Only log errors occasionally to avoid spam
-        if (scanAttempts % 100 === 0) {
-          console.log('🔍 Scanner active, attempts:', scanAttempts);
         }
       };
 
@@ -1058,18 +1064,18 @@ export default function ScanBarcode() {
                                       }`} />
                                     </motion.div>
                                     
-                                    {/* Animated Scanning Line - Professional Red Laser Effect */}
+                                    {/* Animated Scanning Line - Professional Yellow Laser Effect */}
                                     {scanningStatus === 'scanning' && (
                                       <motion.div
                                         animate={{
-                                          y: ['-110%', '210%'],
+                                          top: ['0%', '100%', '0%'],
                                         }}
                                         transition={{
-                                          duration: 2.5,
+                                          duration: 3,
                                           repeat: Infinity,
-                                          ease: "linear"
+                                          ease: "easeInOut"
                                         }}
-                                        className="absolute inset-x-0"
+                                        className="absolute left-0 right-0"
                                         style={{ height: '3px' }}
                                       >
                                         <div className="w-full h-full bg-gradient-to-r from-transparent via-yellow-400 to-transparent shadow-[0_0_25px_rgba(234,179,8,1),0_0_50px_rgba(234,179,8,0.6)]" />
@@ -1349,38 +1355,93 @@ export default function ScanBarcode() {
               )}
             </div>
 
-            {/* Recent Scans */}
+            {/* Recent Scans - Enhanced */}
             {scanHistory.length > 0 && !bulkScanMode && (
-              <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200 mt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                    <Info className="w-5 h-5 text-indigo-600" />
-                    Recent Scans
-                  </h3>
+              <div className="bg-gradient-to-br from-white to-slate-50 rounded-2xl shadow-xl p-6 border-2 border-slate-200 mt-6">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center">
+                      <Info className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-lg">Recent Scans</h3>
+                      <p className="text-xs text-slate-500">{scanHistory.length} items in history</p>
+                    </div>
+                  </div>
                   <button
                     onClick={exportScanHistory}
-                    className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-semibold transition-all flex items-center gap-2"
+                    className="px-4 py-2 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white text-sm font-bold transition-all flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
                     title="Export scan history as CSV"
                   >
                     <Download className="w-4 h-4" />
-                    Export CSV
+                    <span className="hidden sm:inline">Export</span>
                   </button>
                 </div>
-                <div className="space-y-2">
+                
+                <div className="space-y-2.5">
                   {scanHistory.slice(0, 5).map((item, index) => (
-                    <button
+                    <motion.button
                       key={index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      whileHover={{ scale: 1.02, x: 4 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={() => {
                         setManualInput(item.barcode);
                         fetchBarcodeData(item.barcode);
                       }}
-                      className="w-full text-left p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-all border border-slate-200"
+                      className="w-full text-left p-4 rounded-xl bg-white hover:bg-gradient-to-r hover:from-indigo-50 hover:to-purple-50 transition-all border-2 border-slate-200 hover:border-indigo-300 shadow-sm hover:shadow-md group"
                     >
-                      <p className="font-mono text-xs text-indigo-600 font-semibold">{item.barcode}</p>
-                      <p className="text-xs text-slate-600 mt-1">{item.product} • {item.rack || 'No location'}</p>
-                    </button>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-7 h-7 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                              <Package className="w-4 h-4 text-indigo-600" />
+                            </div>
+                            <p className="font-mono text-sm text-indigo-700 font-bold truncate">{item.barcode}</p>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 text-xs text-slate-600">
+                            <span className="font-semibold truncate">{item.product || 'Unknown Product'}</span>
+                            {item.rack && (
+                              <>
+                                <span className="text-slate-400">•</span>
+                                <div className="flex items-center gap-1">
+                                  <MapPin className="w-3 h-3 text-emerald-600" />
+                                  <span className="font-medium text-emerald-700">{item.rack}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                          
+                          <p className="text-[10px] text-slate-400 mt-1.5">
+                            {new Date(item.scannedAt).toLocaleString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
+                        
+                        <div className="flex-shrink-0">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-indigo-100 flex items-center justify-center transition-colors">
+                            <Search className="w-4 h-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
+                          </div>
+                        </div>
+                      </div>
+                    </motion.button>
                   ))}
                 </div>
+                
+                {scanHistory.length > 5 && (
+                  <div className="mt-4 text-center">
+                    <p className="text-xs text-slate-500 font-medium">
+                      Showing 5 of {scanHistory.length} scans • Export to view all
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
