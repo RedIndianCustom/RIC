@@ -358,7 +358,18 @@ export async function getStoragePositions(req, res) {
 export async function updateStoragePosition(req, res) {
   try {
     const { id, positionId } = req.params;
-    const { tire_size, quantity, products, total_quantity, tire_entries } = req.body;
+    const { 
+      tire_size, 
+      quantity, 
+      products, 
+      total_quantity, 
+      tire_entries,
+      // Reservation fields
+      status,
+      reserved_quantity,
+      reserved_for_shipment,
+      product_metadata
+    } = req.body;
 
     // Get the position
     const { data: position, error: positionError } = await supabaseAdmin
@@ -454,7 +465,7 @@ export async function updateStoragePosition(req, res) {
       };
 
     } else {
-      // Handle single product (legacy format)
+      // Handle single product (legacy format) or reservation
       if (quantity === undefined || quantity === null) {
         return res.status(400).json({ error: 'quantity is required' });
       }
@@ -481,9 +492,23 @@ export async function updateStoragePosition(req, res) {
       updateData = {
         current_stock: finalQuantity,
         tire_size: finalQuantity > 0 ? tire_size.trim() : null,
-        status: finalQuantity === 0 ? 'empty' : 
-                finalQuantity >= position.capacity ? 'full' : 'available'
+        status: status || (finalQuantity === 0 ? 'empty' : 
+                finalQuantity >= position.capacity ? 'full' : 'available')
       };
+
+      // Add reservation fields if provided
+      if (reserved_quantity !== undefined) {
+        updateData.reserved_quantity = reserved_quantity;
+      }
+      if (reserved_for_shipment) {
+        updateData.reserved_for_shipment = reserved_for_shipment;
+      }
+      if (product_metadata) {
+        updateData.product_metadata = product_metadata;
+      }
+      if (status === 'reserved') {
+        updateData.reservation_date = new Date().toISOString();
+      }
     }
 
     // Update the position
@@ -499,7 +524,7 @@ export async function updateStoragePosition(req, res) {
       throw updateError;
     }
 
-    console.log(`✅ Updated position ${position.position_code}: ${updateData.tire_size || 'empty'} × ${finalQuantity}`);
+    console.log(`✅ Updated position ${position.position_code}: ${updateData.tire_size || 'empty'} × ${finalQuantity}${updateData.status === 'reserved' ? ' (RESERVED)' : ''}`);
 
     return res.json({ 
       success: true,

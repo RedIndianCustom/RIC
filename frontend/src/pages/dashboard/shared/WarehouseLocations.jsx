@@ -2028,6 +2028,10 @@ export default function WarehouseLocations() {
     const quantity = Number(position.current_stock ?? position.quantity ?? 0);
     const capacity = Number(position.capacity ?? 0);
     const tireSize = position.tire_size || position.tireSize || null;
+    const status = position.status;
+    
+    // Position is reserved - not available
+    if (status === 'reserved') return false;
     
     // Truly available means: no tire assigned AND no quantity AND has capacity
     return !tireSize && quantity === 0 && capacity > 0;
@@ -4197,13 +4201,18 @@ export default function WarehouseLocations() {
                                 <div
                                   key={position.id}
                                   className={`relative rounded-xl border bg-white p-3 text-left transition-all ${
-                                    bulkMode
+                                    position.status === 'reserved'
+                                      ? 'border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 shadow-md'
+                                      : bulkMode
                                       ? selectedPositionIds.has(position.id)
                                         ? 'border-violet-400 bg-violet-50 shadow-md ring-2 ring-violet-300'
                                         : 'cursor-pointer border-slate-200 hover:border-violet-300 hover:bg-violet-50/40'
                                       : 'cursor-pointer border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-sm'
                                   }`}
                                   onClick={() => {
+                                    // Don't allow selection of reserved positions
+                                    if (position.status === 'reserved') return;
+                                    
                                     if (bulkMode) {
                                       setSelectedPositionIds(prev => {
                                         const next = new Set(prev);
@@ -4257,7 +4266,9 @@ export default function WarehouseLocations() {
 
                                     <span
                                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                        quantity === 0
+                                        position.status === 'reserved'
+                                          ? 'bg-amber-100 text-amber-700'
+                                          : quantity === 0
                                           ? 'bg-slate-100 text-slate-500'
                                           : utilization >= 90
                                           ? 'bg-red-100 text-red-600'
@@ -4266,7 +4277,12 @@ export default function WarehouseLocations() {
                                           : 'bg-green-100 text-green-600'
                                       }`}
                                     >
-                                      {quantity === 0 ? 'Empty' : `${utilization}%`}
+                                      {position.status === 'reserved' 
+                                        ? '🔒 Reserved' 
+                                        : quantity === 0 
+                                        ? 'Empty' 
+                                        : `${utilization}%`
+                                      }
                                     </span>
 
                                   </div>
@@ -4280,10 +4296,41 @@ export default function WarehouseLocations() {
 
                                     {tireSize ? (
                                       <>
-                                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                                          Tire Size
-                                        </p>
-                                        <p className="text-sm font-bold text-slate-800">{tireSize}</p>
+                                        {/* Show if position is RESERVED */}
+                                        {position.status === 'reserved' ? (
+                                          <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-500">
+                                                🔒 Reserved
+                                              </p>
+                                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                                                Pending
+                                              </span>
+                                            </div>
+                                            
+                                            <div className="rounded-lg border-2 border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 p-2">
+                                              <p className="text-xs font-bold text-amber-900">{tireSize}</p>
+                                              <div className="mt-1 flex items-center gap-2 text-[10px] text-amber-700">
+                                                <Package size={9} />
+                                                <span>
+                                                  {position.reserved_quantity || quantity} tires reserved
+                                                </span>
+                                              </div>
+                                              {position.reserved_for_shipment && (
+                                                <p className="mt-1 text-[10px] text-amber-600">
+                                                  For: {position.reserved_for_shipment}
+                                                </p>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <>
+                                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                                              Tire Size
+                                            </p>
+                                            <p className="text-sm font-bold text-slate-800">{tireSize}</p>
+                                          </>
+                                        )}
                                       </>
                                     ) : (
                                       <div className="flex h-full items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
@@ -4366,6 +4413,14 @@ export default function WarehouseLocations() {
                                       ASSIGN / EDIT ACTION
                                   ================================= */}
 
+                                  {!bulkMode && position.status === 'reserved' && (
+                                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-center">
+                                      <p className="text-[10px] font-medium text-amber-700">
+                                        🔒 Reserved for incoming shipment
+                                      </p>
+                                    </div>
+                                  )}
+
                                   {!bulkMode && isPositionAvailable(position) && (
                                     <button
                                       type="button"
@@ -4380,7 +4435,7 @@ export default function WarehouseLocations() {
                                     </button>
                                   )}
 
-                                  {!bulkMode && !isPositionAvailable(position) && (
+                                  {!bulkMode && !isPositionAvailable(position) && position.status !== 'reserved' && (
                                     <div className="group mt-3 flex items-center justify-end gap-1 text-[10px] font-semibold text-blue-600 opacity-0 transition-opacity group-hover:opacity-100">
                                       <Edit size={11} />
                                       Assign / Edit

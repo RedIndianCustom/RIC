@@ -46,6 +46,7 @@ export default function ShipmentRegistration() {
   const [selectedPositionIds, setSelectedPositionIds] = useState([]);
   const [rackPositions, setRackPositions] = useState({});
   const [loadingPositions, setLoadingPositions] = useState({});
+  const [expandedSections, setExpandedSections] = useState({}); // NEW: Track which sections are expanded
 
   // Quantity input modal state
   const [showQuantityModal, setShowQuantityModal] = useState(false);
@@ -346,7 +347,7 @@ export default function ShipmentRegistration() {
      DISTRIBUTE QUANTITY ACROSS POSITIONS
   ========================================================================== */
 
-  const distributeQuantityAcrossPositions = (totalQuantity, positions) => {
+  const distributeQuantityAcrossPositions = (totalQuantity, positions, rackId) => {
     let remaining = totalQuantity;
     const distribution = [];
     
@@ -362,6 +363,7 @@ export default function ShipmentRegistration() {
       if (qtyToStore > 0) {
         distribution.push({
           position_id: position.id,
+          rack_id: rackId, // Include rack_id for reservation
           position_code: position.position_code || position.code || `Position-${position.id}`,
           quantity: qtyToStore
         });
@@ -450,17 +452,71 @@ export default function ShipmentRegistration() {
       console.log('📊 Product count:', formData.product_breakdown?.length);
       console.log('📤 Full submission data:', JSON.stringify(submissionData, null, 2));
       
+      let savedShipment;
+      
       if (editingShipment) {
         console.log(`✏️ UPDATING shipment: ${editingShipment.id}`);
         const result = await updateShipment(editingShipment.id, submissionData);
+        savedShipment = result.shipment;
         console.log('✅ Update result:', result);
-        setAlert({ type: 'success', message: 'Shipment updated successfully!' });
       } else {
         console.log('➕ CREATING new shipment');
         const result = await createShipment(submissionData);
+        savedShipment = result.shipment;
         console.log('✅ Create result:', result);
-        setAlert({ type: 'success', message: 'Shipment created successfully!' });
       }
+
+      // 🆕 NOW RESERVE POSITIONS: After shipment is saved successfully
+      if (savedShipment && formData.product_breakdown && formData.product_breakdown.length > 0) {
+        console.log('📍 Reserving positions for saved shipment...');
+        
+        try {
+          const reservationPromises = [];
+          
+          for (const product of formData.product_breakdown) {
+            if (product.assigned_positions && product.assigned_positions.length > 0) {
+              for (const assignment of product.assigned_positions) {
+                reservationPromises.push(
+                  api.put(
+                    `/warehouse-locations/${assignment.rack_id}/positions/${assignment.position_id}`,
+                    {
+                      quantity: assignment.quantity,
+                      tire_size: `${product.brand} ${product.model} - ${product.dimensions}`,
+                      status: 'reserved',
+                      reserved_quantity: assignment.quantity,
+                      reserved_for_shipment: savedShipment.shipment_number,
+                      product_metadata: {
+                        product_id: product.product_id,
+                        brand: product.brand,
+                        model: product.model,
+                        dimensions: product.dimensions,
+                        sku: product.sku
+                      }
+                    }
+                  )
+                );
+              }
+            }
+          }
+          
+          if (reservationPromises.length > 0) {
+            await Promise.all(reservationPromises);
+            console.log(`✅ Reserved ${reservationPromises.length} positions`);
+          }
+        } catch (reserveErr) {
+          console.error('⚠️ Failed to reserve some positions:', reserveErr);
+          // Don't fail the whole operation, shipment is already saved
+          setAlert({ 
+            type: 'warning', 
+            message: 'Shipment saved but some position reservations failed. Please reserve positions manually.' 
+          });
+        }
+      }
+
+      setAlert({ 
+        type: 'success', 
+        message: editingShipment ? 'Shipment updated successfully!' : 'Shipment created successfully!' 
+      });
 
       resetForm();
       await loadData();
@@ -649,11 +705,34 @@ export default function ShipmentRegistration() {
     setEditingProductIndex(productIndex);
     setSelectedRackId(null);
     setSelectedPositionIds([]);
+    setExpandedSections({}); // Reset expanded sections
     setShowPositionModal(true);
     loadRacks(); // Load racks when opening modal
   };
 
-  const confirmPositionAssignment = () => {
+  // NEW: Toggle section expansion
+  const toggleSection = (sectionKey) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [sectionKey]: !prev[sectionKey]
+    }));
+  };
+
+  // NEW: Expand all sections
+  const expandAllSections = (groupedPositions) => {
+    const allExpanded = {};
+    Object.keys(groupedPositions).forEach(key => {
+      allExpanded[key] = true;
+    });
+    setExpandedSections(allExpanded);
+  };
+
+  // NEW: Collapse all sections
+  const collapseAllSections = () => {
+    setExpandedSections({});
+  };
+
+  const confirmPositionAssignment = async () => {
     if (editingProductIndex === null) return;
     
     const product = formData.product_breakdown[editingProductIndex];
@@ -663,7 +742,8 @@ export default function ShipmentRegistration() {
     
     const { distribution, remaining } = distributeQuantityAcrossPositions(
       product.quantity,
-      selectedPositions
+      selectedPositions,
+      selectedRackId // Pass the rack ID
     );
     
     if (remaining > 0) {
@@ -673,6 +753,10 @@ export default function ShipmentRegistration() {
       });
       return;
     }
+    
+    // 🆕 DON'T RESERVE YET - Just save the assignment locally
+    // Positions will be reserved when the shipment is actually saved
+    console.log(`📍 Assigned ${distribution.length} positions (will reserve on shipment save)`);
     
     // Update product with position assignments
     const updatedBreakdown = [...formData.product_breakdown];
@@ -695,7 +779,7 @@ export default function ShipmentRegistration() {
     
     setAlert({
       type: 'success',
-      message: `Assigned ${distribution.length} positions for ${product.product_name}`
+      message: `✅ Assigned ${distribution.length} positions for ${product.product_name} (will reserve when shipment is saved)`
     });
   };
 
@@ -1935,7 +2019,7 @@ export default function ShipmentRegistration() {
                                   </div>
                                 )}
 
-                                {/* Position List (Grouped) */}
+                                {/* Position List (Grouped with Expand/Collapse) */}
                                 {availablePositions.length === 0 ? (
                                   <div className="text-center py-8 bg-slate-50 rounded-xl">
                                     <AlertTriangle className="h-10 w-10 text-amber-500 mx-auto mb-3" />
@@ -1943,95 +2027,224 @@ export default function ShipmentRegistration() {
                                     <p className="text-xs text-slate-500 mt-1">All positions in this rack are full or incompatible</p>
                                   </div>
                                 ) : (
-                                  <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                                    {Object.entries(groupedPositions).map(([key, group]) => (
-                                      <div key={key} className="rounded-lg border border-slate-200 overflow-hidden">
-                                        {/* Section/Shelf Header */}
-                                        <div className="bg-gradient-to-r from-slate-100 to-slate-50 px-3 py-2 border-b border-slate-200">
-                                          <div className="flex items-center gap-2">
-                                            <Layers className="h-3.5 w-3.5 text-slate-600" />
-                                            <span className="text-xs font-bold text-slate-700">
-                                              {group.section} · {group.shelf}
-                                            </span>
-                                            <span className="text-[10px] text-slate-500">
-                                              ({group.positions.length} positions)
-                                            </span>
-                                          </div>
-                                        </div>
-                                        
-                                        {/* Positions in this section/shelf */}
-                                        <div className="p-2 space-y-2">
-                                          {group.positions.map(position => {
-                                            const currentQty = Number(position.current_stock || 0);
-                                            const capacity = Number(position.capacity || 0);
-                                            const available = capacity - currentQty;
-                                            const utilization = (currentQty / capacity) * 100;
-                                            const isSelected = selectedPositionIds.includes(position.id);
+                                  <>
+                                    {/* Expand/Collapse All Buttons */}
+                                    <div className="mb-3 flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => expandAllSections(groupedPositions)}
+                                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                                      >
+                                        <ChevronDown size={12} />
+                                        Expand All
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={collapseAllSections}
+                                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                                      >
+                                        <ChevronRight size={12} />
+                                        Collapse All
+                                      </button>
+                                    </div>
 
-                                            return (
-                                              <label
-                                                key={position.id}
-                                                className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                                                  isSelected
-                                                    ? 'border-emerald-300 bg-emerald-50'
-                                                    : 'border-slate-200 hover:border-emerald-200 hover:bg-slate-50'
-                                                }`}
-                                              >
-                                                <input
-                                                  type="checkbox"
-                                                  checked={isSelected}
-                                                  onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                      setSelectedPositionIds([...selectedPositionIds, position.id]);
-                                                    } else {
-                                                      setSelectedPositionIds(selectedPositionIds.filter(id => id !== position.id));
-                                                    }
-                                                  }}
-                                                  className="h-4 w-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
-                                                />
-                                                <div className="flex-1">
-                                                  <p className="font-mono text-sm font-bold text-slate-800">
-                                                    {position.position_code || position.code || `Position-${position.id}`}
-                                                  </p>
-                                                  <div className="flex items-center gap-2 mt-1">
-                                                    <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
-                                                      available > 0 
-                                                        ? 'bg-emerald-100 text-emerald-700'
-                                                        : 'bg-red-100 text-red-700'
-                                                    }`}>
-                                                      {available} available
-                                                    </span>
-                                                    {position.tire_size && (
-                                                      <span className="text-xs text-slate-600">
-                                                        Current: {position.tire_size}
+                                    <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                                      {Object.entries(groupedPositions).map(([key, group]) => {
+                                        const isExpanded = expandedSections[key];
+                                        const sectionSelectedCount = group.positions.filter(p => selectedPositionIds.includes(p.id)).length;
+
+                                        // Check if all positions in this section are selected
+                                        const allSectionSelected = group.positions.length > 0 && 
+                                          group.positions.every(p => selectedPositionIds.includes(p.id));
+
+                                        // Calculate section capacity
+                                        const sectionTotalCapacity = group.positions.reduce((sum, p) => 
+                                          sum + Number(p.capacity || 0), 0
+                                        );
+                                        const sectionCurrentStock = group.positions.reduce((sum, p) => 
+                                          sum + Number(p.current_stock || p.quantity || 0), 0
+                                        );
+                                        const sectionAvailable = sectionTotalCapacity - sectionCurrentStock;
+                                        const sectionUtilization = sectionTotalCapacity > 0 
+                                          ? Math.round((sectionCurrentStock / sectionTotalCapacity) * 100) 
+                                          : 0;
+
+                                        return (
+                                          <div key={key} className="rounded-lg border border-slate-200 overflow-hidden">
+                                            {/* Section/Shelf Header */}
+                                            <div className="bg-gradient-to-r from-slate-100 to-slate-50 px-3 py-2.5 border-b border-slate-200">
+                                              <div className="flex items-center justify-between">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => toggleSection(key)}
+                                                  className="flex items-center gap-2 hover:opacity-75 transition-opacity"
+                                                >
+                                                  {isExpanded ? (
+                                                    <ChevronDown className="h-4 w-4 text-slate-600" />
+                                                  ) : (
+                                                    <ChevronRight className="h-4 w-4 text-slate-600" />
+                                                  )}
+                                                  <Layers className="h-3.5 w-3.5 text-slate-600" />
+                                                  <div className="flex flex-col items-start">
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-xs font-bold text-slate-700">
+                                                        {group.section} · {group.shelf}
                                                       </span>
+                                                      <span className="text-[10px] text-slate-500">
+                                                        ({group.positions.length} positions)
+                                                      </span>
+                                                    </div>
+                                                    {/* Capacity Info */}
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                      <span className={`text-[10px] font-bold ${
+                                                        sectionAvailable >= 100 ? 'text-emerald-600' :
+                                                        sectionAvailable >= 50 ? 'text-amber-600' :
+                                                        'text-red-600'
+                                                      }`}>
+                                                        {sectionAvailable} available
+                                                      </span>
+                                                      <span className="text-[10px] text-slate-400">
+                                                        · {sectionCurrentStock}/{sectionTotalCapacity} capacity
+                                                      </span>
+                                                      <span className={`text-[10px] font-semibold ${
+                                                        sectionUtilization >= 90 ? 'text-red-600' :
+                                                        sectionUtilization >= 70 ? 'text-amber-600' :
+                                                        'text-emerald-600'
+                                                      }`}>
+                                                        ({sectionUtilization}% full)
+                                                      </span>
+                                                    </div>
+                                                  </div>
+                                                </button>
+                                                
+                                                <div className="flex items-center gap-2">
+                                                  {/* Select All Section Button */}
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      const sectionPositionIds = group.positions.map(p => p.id);
+                                                      if (allSectionSelected) {
+                                                        // Deselect all from this section
+                                                        setSelectedPositionIds(
+                                                          selectedPositionIds.filter(id => !sectionPositionIds.includes(id))
+                                                        );
+                                                      } else {
+                                                        // Select all from this section
+                                                        const newIds = [...selectedPositionIds];
+                                                        sectionPositionIds.forEach(id => {
+                                                          if (!newIds.includes(id)) {
+                                                            newIds.push(id);
+                                                          }
+                                                        });
+                                                        setSelectedPositionIds(newIds);
+                                                      }
+                                                    }}
+                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                                                      allSectionSelected
+                                                        ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                                                        : 'bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                                                    }`}
+                                                  >
+                                                    {allSectionSelected ? (
+                                                      <>
+                                                        <CheckCircle2 className="h-3 w-3" />
+                                                        Deselect All
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <CheckCircle2 className="h-3 w-3" />
+                                                        Select All
+                                                      </>
                                                     )}
-                                                  </div>
-                                                  {/* Capacity Bar */}
-                                                  <div className="mt-2">
-                                                    <div className="mb-1 flex items-center justify-between">
-                                                      <span className="text-[10px] font-semibold uppercase text-slate-400">Capacity</span>
-                                                      <span className="text-xs font-bold text-slate-700">{currentQty} / {capacity}</span>
-                                                    </div>
-                                                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
-                                                      <div
-                                                        className={`h-full rounded-full transition-all ${
-                                                          utilization >= 90 ? 'bg-red-500'
-                                                          : utilization >= 70 ? 'bg-amber-500'
-                                                          : 'bg-emerald-500'
-                                                        }`}
-                                                        style={{ width: `${utilization}%` }}
-                                                      />
-                                                    </div>
-                                                  </div>
+                                                  </button>
+                                                  
+                                                  {sectionSelectedCount > 0 && (
+                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                                      {sectionSelectedCount} selected
+                                                    </span>
+                                                  )}
                                                 </div>
-                                              </label>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
+                                              </div>
+                                            </div>
+                                            
+                                            {/* Positions in this section/shelf - Only show when expanded */}
+                                            {isExpanded && (
+                                              <div className="p-2 space-y-2 bg-white">
+                                                {group.positions.map(position => {
+                                                  const currentQty = Number(position.current_stock || position.quantity || 0);
+                                                  const capacity = Number(position.capacity || 0);
+                                                  const available = capacity - currentQty;
+                                                  const utilization = (currentQty / capacity) * 100;
+                                                  const isSelected = selectedPositionIds.includes(position.id);
+
+                                                  return (
+                                                    <label
+                                                      key={position.id}
+                                                      className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                                                        isSelected
+                                                          ? 'border-emerald-300 bg-emerald-50'
+                                                          : 'border-slate-200 hover:border-emerald-200 hover:bg-slate-50'
+                                                      }`}
+                                                    >
+                                                      <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={(e) => {
+                                                          if (e.target.checked) {
+                                                            setSelectedPositionIds([...selectedPositionIds, position.id]);
+                                                          } else {
+                                                            setSelectedPositionIds(selectedPositionIds.filter(id => id !== position.id));
+                                                          }
+                                                        }}
+                                                        className="h-4 w-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
+                                                      />
+                                                      <div className="flex-1">
+                                                        <p className="font-mono text-sm font-bold text-slate-800">
+                                                          {position.position_code || position.code || `Position-${position.id}`}
+                                                        </p>
+                                                        <div className="flex items-center gap-2 mt-1">
+                                                          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                                                            available > 0 
+                                                              ? 'bg-emerald-100 text-emerald-700'
+                                                              : 'bg-red-100 text-red-700'
+                                                          }`}>
+                                                            {available} available
+                                                          </span>
+                                                          {position.tire_size && (
+                                                            <span className="text-xs text-slate-600">
+                                                              Current: {position.tire_size}
+                                                            </span>
+                                                          )}
+                                                        </div>
+                                                        {/* Capacity Bar */}
+                                                        <div className="mt-2">
+                                                          <div className="mb-1 flex items-center justify-between">
+                                                            <span className="text-[10px] font-semibold uppercase text-slate-400">Capacity</span>
+                                                            <span className="text-xs font-bold text-slate-700">{currentQty} / {capacity}</span>
+                                                          </div>
+                                                          <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                                            <div
+                                                              className={`h-full rounded-full transition-all ${
+                                                                utilization >= 90 ? 'bg-red-500'
+                                                                : utilization >= 70 ? 'bg-amber-500'
+                                                                : 'bg-emerald-500'
+                                                              }`}
+                                                              style={{ width: `${utilization}%` }}
+                                                            />
+                                                          </div>
+                                                        </div>
+                                                      </div>
+                                                    </label>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </>
                                 )}
                               </>
                             );
