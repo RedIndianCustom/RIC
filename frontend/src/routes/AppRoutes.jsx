@@ -239,8 +239,8 @@ export default function AppRoutes() {
             <Route path="/shipments/returns" element={<Returns />} />
           </Route>
 
-          {/* Inventory: Admin(full) | Manager(view) | Warehouse(view) */}
-          <Route element={<RoleRoute allowed={[A, M, WH]} />}>
+          {/* Inventory: Admin(full) | Manager(view) | Warehouse(view) | Operational(view) */}
+          <Route element={<RoleRoute allowed={[A, M, WH, OP]} />}>
             <Route path="/inventory" element={<Inventory />} />
           </Route>
 

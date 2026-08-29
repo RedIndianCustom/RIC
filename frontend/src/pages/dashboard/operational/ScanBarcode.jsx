@@ -645,6 +645,9 @@ export default function ScanBarcode() {
         setScannedData(data);
         saveScanHistory(data);
         console.log('✅ Barcode data loaded:', data);
+        console.log('📦 Batch data specifically:', data.batches);
+        console.log('🔍 Batch exists?:', !!data.batches);
+        console.log('🔍 Batch number:', data.batches?.batch_number);
       } else {
         setError('Barcode not found or inactive');
       }
@@ -1688,6 +1691,41 @@ export default function ScanBarcode() {
                               <p className="text-[10px] text-amber-600 mt-0.5">This tire needs to be assigned to a storage location</p>
                             </div>
                           )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Batch Information - NEW: Show batch in location section */}
+                  {scannedData.batches && (Array.isArray(scannedData.batches) ? scannedData.batches[0] : scannedData.batches) && (
+                    <div className="bg-gradient-to-br from-emerald-600 to-green-600 rounded-2xl p-6 border-2 border-emerald-400 shadow-xl">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-14 h-14 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                          <Package className="w-7 h-7 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-2xl font-black text-white">📦 Batch Information</h3>
+                          <p className="text-emerald-50 text-sm font-medium">Production batch details</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-white/95 backdrop-blur-sm rounded-xl p-5 shadow-lg">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="text-center p-3 bg-amber-50 rounded-lg border border-amber-200">
+                            <p className="text-xs font-semibold text-amber-700 mb-1">Batch Number</p>
+                            <p className="font-mono font-black text-xl text-amber-900">
+                              {(Array.isArray(scannedData.batches) ? scannedData.batches[0]?.batch_number : scannedData.batches?.batch_number) || 'N/A'}
+                            </p>
+                          </div>
+                          <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            <p className="text-xs font-semibold text-blue-700 mb-1">Production Date</p>
+                            <p className="font-bold text-lg text-blue-900">
+                              {(Array.isArray(scannedData.batches) ? 
+                                `${scannedData.batches[0]?.batch_month || 'N/A'}/${scannedData.batches[0]?.batch_year || 'N/A'}` :
+                                `${scannedData.batches?.batch_month || 'N/A'}/${scannedData.batches?.batch_year || 'N/A'}`
+                              )}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>

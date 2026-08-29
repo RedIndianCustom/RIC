@@ -2800,6 +2800,30 @@ export default function BarcodeGeneration() {
                       </div>
                     )}
 
+                    {/* Batch Information - NEW: Show batch in location section */}
+                    {traceabilityData.batches && (
+                      <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-200">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Package className="w-5 h-5 text-amber-600" />
+                          <h3 className="text-base font-bold text-slate-900">📦 Batch Information</h3>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-xs text-slate-600 mb-0.5">Batch Number</p>
+                            <p className="font-mono font-semibold text-slate-900 text-sm">
+                              {traceabilityData.batches?.batch_number || 'N/A'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-slate-600 mb-0.5">Production Date</p>
+                            <p className="font-semibold text-slate-900 text-sm">
+                              {traceabilityData.batches?.batch_month || 'N/A'}/{traceabilityData.batches?.batch_year || 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Barcode Status - Compact */}
                     <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl p-4 border border-slate-200">
                       <div className="flex items-center gap-2 mb-3">

@@ -26,6 +26,7 @@ import batchRoutes from './routes/batchRoutes.js';
 import warehouseLocationRoutes from './routes/warehouseLocationRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import inventoryRoutes from './routes/inventoryRoutes.js';
+import inventoryAdvancedRoutes from './routes/inventoryAdvancedRoutes.js';
 
 const app = express();
 
@@ -58,6 +59,9 @@ app.use('/api/traceability', traceabilityRoutes);
 
 // Inventory Units
 app.use('/api/inventory-units', inventoryRoutes);
+
+// Inventory Advanced Features (Low Stock, Analytics, Bulk Operations)
+app.use('/api/inventory', inventoryAdvancedRoutes);
 
 // Orders & Returns
 // Returns are sub-paths of orders: GET /api/orders/returns, POST /api/orders/returns
