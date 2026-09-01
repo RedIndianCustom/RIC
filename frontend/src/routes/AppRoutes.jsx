@@ -29,6 +29,8 @@ import SystemSettings      from '../pages/dashboard/admin/SystemSettings.jsx';
 // ── Manager ───────────────────────────────────────────────────
 import BarcodeMonitoring   from '../pages/dashboard/manager/BarcodeMonitoring.jsx';
 import ApprovalRequests    from '../pages/dashboard/manager/ApprovalRequests.jsx';
+import DiscrepancyApproval from '../pages/dashboard/manager/DiscrepancyApproval.jsx';
+import QCApproval          from '../pages/dashboard/manager/QCApproval.jsx';
 import AllReports          from '../pages/dashboard/manager/AllReports.jsx';
 import InventoryReports    from '../pages/dashboard/manager/InventoryReports.jsx';
 import SalesReports        from '../pages/dashboard/manager/SalesReports.jsx';
@@ -39,7 +41,7 @@ import ReturnReports       from '../pages/dashboard/manager/ReturnReports.jsx';
 import EmployeeEfficiency  from '../pages/dashboard/manager/EmployeeEfficiency.jsx';
 
 // ── Operational Staff ─────────────────────────────────────────
-import ShipmentRegistration from '../pages/dashboard/operational/ShipmentRegistration.jsx';
+import ShipmentRegistrationEnhanced from '../pages/dashboard/operational/ShipmentRegistrationEnhanced.jsx';
 import ShipmentDocuments   from '../pages/dashboard/operational/ShipmentDocuments.jsx';
 import ShipmentSchedule    from '../pages/dashboard/operational/ShipmentSchedule.jsx';
 import ProductsList        from '../pages/dashboard/operational/ProductsList.jsx';
@@ -59,7 +61,11 @@ import ScanBarcode         from '../pages/dashboard/operational/ScanBarcode.jsx'
 
 // ── Warehouse Staff ───────────────────────────────────────────
 import Receiving           from '../pages/dashboard/warehouse/Receiving.jsx';
+import ReceivingEnhanced   from '../pages/dashboard/warehouse/ReceivingEnhanced.jsx';
+import ReceivingWithScanningEnhanced from '../pages/dashboard/warehouse/ReceivingWithScanningEnhanced.jsx';
 import ScanProducts        from '../pages/dashboard/warehouse/ScanProducts.jsx';
+import ScanProductsEnhanced from '../pages/dashboard/warehouse/ScanProductsEnhanced.jsx';
+import QCInspectionEnhanced from '../pages/dashboard/warehouse/QCInspectionEnhanced.jsx';
 import InventoryCount      from '../pages/dashboard/warehouse/InventoryCount.jsx';
 import LocationLookup      from '../pages/dashboard/warehouse/LocationLookup.jsx';
 import Inspection          from '../pages/dashboard/warehouse/Inspection.jsx';
@@ -83,7 +89,7 @@ import ProductRelease      from '../pages/dashboard/sales/ProductRelease.jsx';
 import Refund              from '../pages/dashboard/sales/Refund.jsx';
 
 // ── Shared (multi-role) ───────────────────────────────────────
-import IncomingShipments   from '../pages/dashboard/shared/IncomingShipments.jsx';
+import IncomingShipmentsEnhanced from '../pages/dashboard/operational/IncomingShipmentsEnhanced.jsx';
 import WarehouseLocations  from '../pages/dashboard/shared/WarehouseLocations.jsx';
 import StockMovement       from '../pages/dashboard/shared/StockMovement.jsx';
 import Discrepancies       from '../pages/dashboard/shared/Discrepancies.jsx';
@@ -139,6 +145,8 @@ export default function AppRoutes() {
           <Route element={<RoleRoute allowed={[M, A]} />}>
             <Route path="/barcodes"                      element={<BarcodeMonitoring />} />
             <Route path="/approvals"                     element={<ApprovalRequests />} />
+            <Route path="/manager/discrepancy-approval"  element={<DiscrepancyApproval />} />
+            <Route path="/manager/qc-approval"           element={<QCApproval />} />
             <Route path="/reports"                       element={<AllReports />} />
             <Route path="/reports/inventory"             element={<InventoryReports />} />
             <Route path="/reports/sales"                 element={<SalesReports />} />
@@ -153,32 +161,34 @@ export default function AppRoutes() {
               OPERATIONAL STAFF
           ═══════════════════════════════════════════════════ */}
           <Route element={<RoleRoute allowed={[OP, A]} />}>
-            <Route path="/shipments"            element={<ShipmentRegistration />} />
-            <Route path="/shipments/documents"  element={<ShipmentDocuments />} />
-            <Route path="/shipments/schedule"   element={<ShipmentSchedule />} />
-            <Route path="/shipments/register"   element={<ShipmentRegistration />} />
-            <Route path="/products"             element={<ProductsList />} />
-            <Route path="/products/list"        element={<ProductsList />} />
-            <Route path="/products/register"    element={<ProductRegistration />} />
-            <Route path="/products/catalog"     element={<ProductsList />} />
-            <Route path="/products/lookup"      element={<ProductsList />} />
-            <Route path="/products/search"      element={<ProductsList />} />
-            <Route path="/expected-inventory"   element={<ExpectedInventory />} />
-            <Route path="/barcode/prepare"      element={<BarcodePreparation />} />
-            <Route path="/barcode/generate"     element={<BarcodeGeneration />} />
-            <Route path="/barcode/labels"       element={<BarcodeGeneration />} />
-            <Route path="/barcode/print"        element={<BarcodeGeneration />} />
-            <Route path="/inventory/relocate"   element={<RelocateInventory />} />
-            <Route path="/batches"              element={<BatchManagement />} />
-            <Route path="/batches/manage"       element={<BatchManagement />} />
-            <Route path="/batches/waybills"     element={<Waybill />} />
-            <Route path="/orders/process"       element={<OrderManagement />} />
-            <Route path="/inventory/register"   element={<InventoryRegistration />} />
-            <Route path="/inventory/update"     element={<InventoryUpdate />} />
-            <Route path="/packing-slip"         element={<PackingSlip />} />
-            <Route path="/returns/process"      element={<ReturnProcessing />} />
-            <Route path="/waybill"              element={<Waybill />} />
-            <Route path="/waybills"             element={<Waybill />} />
+            <Route path="/shipments"                    element={<ShipmentRegistrationEnhanced />} />
+            <Route path="/shipments/register"           element={<ShipmentRegistrationEnhanced />} />
+            <Route path="/shipments/register-enhanced"  element={<ShipmentRegistrationEnhanced />} />
+            <Route path="/operational/incoming-shipments-enhanced" element={<IncomingShipmentsEnhanced />} />
+            <Route path="/shipments/documents"          element={<ShipmentDocuments />} />
+            <Route path="/shipments/schedule"           element={<ShipmentSchedule />} />
+            <Route path="/products"                     element={<ProductsList />} />
+            <Route path="/products/list"                element={<ProductsList />} />
+            <Route path="/products/register"            element={<ProductRegistration />} />
+            <Route path="/products/catalog"             element={<ProductsList />} />
+            <Route path="/products/lookup"              element={<ProductsList />} />
+            <Route path="/products/search"              element={<ProductsList />} />
+            <Route path="/expected-inventory"           element={<ExpectedInventory />} />
+            <Route path="/barcode/prepare"              element={<BarcodePreparation />} />
+            <Route path="/barcode/generate"             element={<BarcodeGeneration />} />
+            <Route path="/barcode/labels"               element={<BarcodeGeneration />} />
+            <Route path="/barcode/print"                element={<BarcodeGeneration />} />
+            <Route path="/inventory/relocate"           element={<RelocateInventory />} />
+            <Route path="/batches"                      element={<BatchManagement />} />
+            <Route path="/batches/manage"               element={<BatchManagement />} />
+            <Route path="/batches/waybills"             element={<Waybill />} />
+            <Route path="/orders/process"               element={<OrderManagement />} />
+            <Route path="/inventory/register"           element={<InventoryRegistration />} />
+            <Route path="/inventory/update"             element={<InventoryUpdate />} />
+            <Route path="/packing-slip"                 element={<PackingSlip />} />
+            <Route path="/returns/process"              element={<ReturnProcessing />} />
+            <Route path="/waybill"                      element={<Waybill />} />
+            <Route path="/waybills"                     element={<Waybill />} />
           </Route>
 
           {/* ══════════════════════════════════════════════════
@@ -194,14 +204,17 @@ export default function AppRoutes() {
               WAREHOUSE STAFF
           ═══════════════════════════════════════════════════ */}
           <Route element={<RoleRoute allowed={[WH, M, A]} />}>
-            <Route path="/receiving"           element={<Receiving />} />
-            <Route path="/warehouse/scan"      element={<ScanProducts />} />
-            <Route path="/inspection"          element={<Inspection />} />
-            <Route path="/packing"             element={<Packing />} />
-            <Route path="/picking/fifo"        element={<FifoPicking />} />
-            <Route path="/picking/discrepancy" element={<PickingDiscrepancy />} />
-            <Route path="/waybill/attach"      element={<WaybillAttachment />} />
-            <Route path="/warehouse/efficiency-report" element={<EfficiencyReport />} />
+            <Route path="/receiving"                    element={<ReceivingEnhanced />} />
+            <Route path="/warehouse/receiving-enhanced" element={<ReceivingWithScanningEnhanced />} />
+            <Route path="/warehouse/qc-inspection"      element={<QCInspectionEnhanced />} />
+            <Route path="/warehouse/scan"               element={<ScanProductsEnhanced />} />
+            <Route path="/scan-products"                element={<ScanProductsEnhanced />} />
+            <Route path="/inspection"                   element={<Inspection />} />
+            <Route path="/packing"                      element={<Packing />} />
+            <Route path="/picking/fifo"                 element={<FifoPicking />} />
+            <Route path="/picking/discrepancy"          element={<PickingDiscrepancy />} />
+            <Route path="/waybill/attach"               element={<WaybillAttachment />} />
+            <Route path="/warehouse/efficiency-report"  element={<EfficiencyReport />} />
           </Route>
 
           <Route element={<RoleRoute allowed={[WH, A]} />}>
@@ -231,7 +244,7 @@ export default function AppRoutes() {
 
           {/* Incoming Shipments: Manager(view) | Operational(full) | Warehouse(view) */}
           <Route element={<RoleRoute allowed={[M, OP, WH, A]} />}>
-            <Route path="/shipments/incoming" element={<IncomingShipments />} />
+            <Route path="/shipments/incoming" element={<IncomingShipmentsEnhanced />} />
           </Route>
 
           {/* Process Returns: Operational(full) - Enhanced returns processing page */}

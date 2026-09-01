@@ -123,6 +123,14 @@ export default function WarehouseDashboardView({ name = 'Warehouse Staff' }) {
             </button>
 
             <Link
+              to="/scan-products"
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-800 hover:bg-orange-700 text-orange-200 text-sm font-medium transition-all border border-orange-700 active:scale-95"
+            >
+              <ScanBarcode className="w-4 h-4 text-amber-400" />
+              Scan Products
+            </Link>
+
+            <Link
               to="/warehouse/tasks"
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-orange-800 hover:bg-orange-700 text-orange-200 text-sm font-medium transition-all border border-orange-700 active:scale-95"
             >
@@ -471,18 +479,15 @@ export default function WarehouseDashboardView({ name = 'Warehouse Staff' }) {
               </div>
             </div>
             <div className="space-y-1.5 pt-2 border-t border-amber-100">
-              <button 
-                onClick={() => handleQuickAction('scan')}
-                className="w-full flex items-center justify-between p-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-100/60 hover:text-amber-900 transition-colors"
-              >
-                <span className="flex items-center gap-2"><ScanBarcode className="w-4 h-4 text-amber-600" /> Quick Scan</span>
+              <Link to="/scan-products" className="flex items-center justify-between p-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-100/60 hover:text-amber-900 transition-colors">
+                <span className="flex items-center gap-2"><ScanBarcode className="w-4 h-4 text-amber-600" /> Scan Products</span>
                 <ChevronRight className="w-3.5 h-3.5 opacity-60" />
-              </button>
+              </Link>
               <Link to="/inventory" className="flex items-center justify-between p-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-100/60 hover:text-amber-900 transition-colors">
                 <span className="flex items-center gap-2"><Boxes className="w-4 h-4 text-amber-600" /> Stock Lookup</span>
                 <ChevronRight className="w-3.5 h-3.5 opacity-60" />
               </Link>
-              <Link to="/warehouse/cycle-count" className="flex items-center justify-between p-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-100/60 hover:text-amber-900 transition-colors">
+              <Link to="/inventory/count" className="flex items-center justify-between p-2 rounded-lg text-xs font-medium text-slate-700 hover:bg-amber-100/60 hover:text-amber-900 transition-colors">
                 <span className="flex items-center gap-2"><ClipboardList className="w-4 h-4 text-amber-600" /> Cycle Count</span>
                 <ChevronRight className="w-3.5 h-3.5 opacity-60" />
               </Link>

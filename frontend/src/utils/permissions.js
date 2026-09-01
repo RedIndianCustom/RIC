@@ -86,11 +86,18 @@ export const NAV_SECTIONS = [
     ],
   },
   {
+    section: 'Quality Control & Approvals',
+    items: [
+      { label: 'Discrepancy Approval',   path: '/manager/discrepancy-approval', roles: [ROLES.MANAGER] },
+      { label: 'QC Inspection Approval', path: '/manager/qc-approval',         roles: [ROLES.MANAGER] },
+      { label: 'Approval Requests',      path: '/approvals',           roles: [ROLES.MANAGER] },
+    ],
+  },
+  {
     section: 'Operations',
     items: [
       { label: 'Orders',                 path: '/orders',              roles: [ROLES.MANAGER] },
       { label: 'Returns / Refunds',      path: '/returns',             roles: [ROLES.MANAGER] },
-      { label: 'Approval Requests',      path: '/approvals',           roles: [ROLES.MANAGER] },
     ],
   },
   {
@@ -114,7 +121,9 @@ export const NAV_SECTIONS = [
     section: 'Shipment & Cargo',
     items: [
       { label: 'Incoming Shipments',     path: '/shipments/incoming',  roles: [ROLES.OPERATIONAL_STAFF] },
+      { label: 'Incoming Shipments (Enhanced)', path: '/operational/incoming-shipments-enhanced', roles: [ROLES.OPERATIONAL_STAFF] },
       { label: 'All Shipments',          path: '/shipments',           roles: [ROLES.OPERATIONAL_STAFF] },
+      { label: 'Register Shipment (Enhanced)', path: '/shipments/register-enhanced', roles: [ROLES.OPERATIONAL_STAFF] },
       { label: 'Process Returns',        path: '/returns',             roles: [ROLES.OPERATIONAL_STAFF] },
     ],
   },
@@ -158,6 +167,8 @@ export const NAV_SECTIONS = [
     section: 'Warehouse Operations',
     items: [
       { label: 'Receiving',              path: '/receiving',           roles: [ROLES.WAREHOUSE_STAFF] },
+      { label: 'Receiving (Enhanced)',   path: '/warehouse/receiving-enhanced', roles: [ROLES.WAREHOUSE_STAFF] },
+      { label: 'QC Inspection',          path: '/warehouse/qc-inspection',      roles: [ROLES.WAREHOUSE_STAFF] },
       { label: 'Barcode Scanner',        path: '/barcode/scan',        roles: [ROLES.WAREHOUSE_STAFF] },
       { label: 'Inventory',              path: '/inventory',           roles: [ROLES.WAREHOUSE_STAFF] },
       { label: 'Storage Locations',      path: '/warehouse',           roles: [ROLES.WAREHOUSE_STAFF] },

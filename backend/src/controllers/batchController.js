@@ -377,44 +377,91 @@ export async function updateBatch(req, res) {
 /**
  * Delete batch (soft delete by setting status to INACTIVE)
  * @route DELETE /api/batches/:id
+ * 
+ * NOTE: This is a SOFT DELETE - it only changes the status to INACTIVE.
+ * All related records (barcodes, inventory) are preserved with FK relationships intact.
+ * This is safe even if the batch has inventory or barcodes.
  */
 export async function deleteBatch(req, res) {
   try {
     const { id } = req.params;
 
-    // Check if batch has barcodes
-    const { data: barcodes } = await supabaseAdmin
-      .from('barcodes')
-      .select('id')
-      .eq('batch_id', id)
-      .limit(1);
+    // Get batch info for logging
+    const { data: batch } = await supabaseAdmin
+      .from('batches')
+      .select('batch_number, status')
+      .eq('id', id)
+      .single();
 
-    if (barcodes && barcodes.length > 0) {
-      return res.status(409).json({
-        error: 'Cannot delete batch with existing barcodes',
-        message: 'Please delete all barcodes first'
+    if (!batch) {
+      return res.status(404).json({
+        error: 'Batch not found'
       });
     }
 
-    // Soft delete by setting status to INACTIVE
+    // Count related records (for info only, not blocking)
+    const [barcodeResult, inventoryResult] = await Promise.all([
+      supabaseAdmin
+        .from('barcodes')
+        .select('id', { count: 'exact', head: true })
+        .eq('batch_id', id),
+      supabaseAdmin
+        .from('inventory_units')
+        .select('id', { count: 'exact', head: true })
+        .eq('batch_id', id)
+    ]);
+
+    const barcodeCount = barcodeResult.count || 0;
+    const inventoryCount = inventoryResult.count || 0;
+
+    console.log(`🗑️ Deactivating batch ${batch.batch_number}:`);
+    console.log(`   - Current status: ${batch.status}`);
+    console.log(`   - Related barcodes: ${barcodeCount}`);
+    console.log(`   - Related inventory units: ${inventoryCount}`);
+
+    // Soft delete by setting status to INACTIVE (safe even with related records)
     const { data, error } = await supabaseAdmin
       .from('batches')
-      .update({ status: 'INACTIVE' })
+      .update({ 
+        status: 'INACTIVE', 
+        updated_at: new Date().toISOString() 
+      })
       .eq('id', id)
-      .select()
+      .select(`
+        *,
+        products:product_id (
+          id,
+          sku,
+          brand,
+          model
+        ),
+        shipments:shipment_id (
+          id,
+          shipment_number
+        )
+      `)
       .single();
 
     if (error) {
-      console.error('Error deleting batch:', error);
+      console.error('❌ Error deactivating batch:', error);
       return res.status(500).json({
-        error: 'Failed to delete batch',
+        error: 'Failed to deactivate batch',
         details: error.message
       });
     }
 
+    console.log(`✅ Batch ${batch.batch_number} deactivated successfully`);
+    console.log(`   - All ${barcodeCount} barcodes preserved`);
+    console.log(`   - All ${inventoryCount} inventory units preserved`);
+
     res.json({
       success: true,
-      message: 'Batch deactivated successfully'
+      batch: data,
+      message: `Batch deactivated successfully. ${barcodeCount} barcodes and ${inventoryCount} inventory units preserved.`,
+      preserved: {
+        barcodes: barcodeCount,
+        inventory_units: inventoryCount
+      }
     });
   } catch (err) {
     console.error('deleteBatch error:', err);
