@@ -579,12 +579,13 @@ export default function ShipmentRegistration() {
 
   const handleDeleteConfirm = async (id) => {
     try {
-      await deleteShipment(id);
+      // Update shipment status to CANCELLED instead of deleting (prevents FK constraint violations)
+      await updateShipment(id, { status: 'CANCELLED' });
       setAlert({ type: 'success', message: 'Shipment cancelled successfully!' });
       setDeleteConfirm(null);
       await loadData();
     } catch (err) {
-      console.error('Error deleting shipment:', err);
+      console.error('Error cancelling shipment:', err);
       setAlert({ type: 'error', message: 'Failed to cancel shipment' });
     }
   };
@@ -2349,6 +2350,7 @@ export default function ShipmentRegistration() {
                 const statusConfig = getStatusConfig(shipment.status);
                 const StatusIcon = statusConfig.icon;
                 const isDeleting = deleteConfirm === shipment.id;
+                const canCancel = shipment.status === 'PENDING'; // Only allow cancelling PENDING shipments
 
                 return (
                   <motion.div
@@ -2421,24 +2423,26 @@ export default function ShipmentRegistration() {
                           whileHover={{ scale: 1.02 }}
                           whileTap={{ scale: 0.98 }}
                           onClick={() => handleEdit(shipment)}
-                          className="flex-1 inline-flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 font-medium"
+                          className={`${canCancel ? 'flex-1' : 'w-full'} inline-flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 font-medium`}
                         >
                           <Edit className="h-4 w-4 mr-2" />
                           Edit
                         </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => handleDeleteClick(shipment)}
-                          className={`flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 font-medium ${
-                            isDeleting
-                              ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white'
-                              : 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 hover:from-red-50 hover:to-rose-50 hover:text-red-600'
-                          }`}
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </motion.button>
+                        {canCancel && (
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => handleDeleteClick(shipment)}
+                            className={`flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 font-medium ${
+                              isDeleting
+                                ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white'
+                                : 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 hover:from-red-50 hover:to-rose-50 hover:text-red-600'
+                            }`}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Cancel
+                          </motion.button>
+                        )}
                       </div>
 
                       {/* Delete Confirmation */}
@@ -2454,9 +2458,9 @@ export default function ShipmentRegistration() {
                               <div className="flex items-start space-x-3">
                                 <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
                                 <div>
-                                  <p className="text-sm font-semibold text-red-800">Confirm Deletion</p>
+                                  <p className="text-sm font-semibold text-red-800">Confirm Cancellation</p>
                                   <p className="text-xs text-red-600 mt-1">
-                                    This will permanently cancel this shipment.
+                                    This will change the shipment status to CANCELLED. The shipment record will be preserved for audit purposes.
                                   </p>
                                 </div>
                               </div>
@@ -2465,7 +2469,7 @@ export default function ShipmentRegistration() {
                                   onClick={() => handleDeleteConfirm(shipment.id)}
                                   className="flex-1 px-3 py-2 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-lg font-medium text-sm hover:shadow-lg transition-all"
                                 >
-                                  Yes, Delete
+                                  Yes, Cancel Shipment
                                 </button>
                                 <button
                                   onClick={() => setDeleteConfirm(null)}
