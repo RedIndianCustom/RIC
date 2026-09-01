@@ -41,6 +41,7 @@ import ReturnReports       from '../pages/dashboard/manager/ReturnReports.jsx';
 import EmployeeEfficiency  from '../pages/dashboard/manager/EmployeeEfficiency.jsx';
 
 // ── Operational Staff ─────────────────────────────────────────
+import ShipmentRegistration from '../pages/dashboard/operational/ShipmentRegistration.jsx';
 import ShipmentRegistrationEnhanced from '../pages/dashboard/operational/ShipmentRegistrationEnhanced.jsx';
 import ShipmentDocuments   from '../pages/dashboard/operational/ShipmentDocuments.jsx';
 import ShipmentSchedule    from '../pages/dashboard/operational/ShipmentSchedule.jsx';
@@ -161,8 +162,8 @@ export default function AppRoutes() {
               OPERATIONAL STAFF
           ═══════════════════════════════════════════════════ */}
           <Route element={<RoleRoute allowed={[OP, A]} />}>
-            <Route path="/shipments"                    element={<ShipmentRegistrationEnhanced />} />
-            <Route path="/shipments/register"           element={<ShipmentRegistrationEnhanced />} />
+            <Route path="/shipments"                    element={<ShipmentRegistration />} />
+            <Route path="/shipments/register"           element={<ShipmentRegistration />} />
             <Route path="/shipments/register-enhanced"  element={<ShipmentRegistrationEnhanced />} />
             <Route path="/operational/incoming-shipments-enhanced" element={<IncomingShipmentsEnhanced />} />
             <Route path="/shipments/documents"          element={<ShipmentDocuments />} />

@@ -148,9 +148,16 @@ export default function ReceivingEnhanced() {
     };
   }, []);
 
+  const handleCloseModal = async () => {
+    await stopCamera();
+    setShowReceivingModal(false);
+  };
+
   // Start receiving a shipment — loads expected items with full product info
   const handleStartReceiving = async (shipment) => {
     try {
+      setShowCamera(false);
+      setCameraError('');
       setSelectedShipment(shipment);
 
       // Load expected items from the receiving-qc endpoint (has product + SKU info)
@@ -454,7 +461,7 @@ export default function ReceivingEnhanced() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-            onClick={() => setShowReceivingModal(false)}
+            onClick={handleCloseModal}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -478,7 +485,7 @@ export default function ReceivingEnhanced() {
                     </p>
                   </div>
                   <button
-                    onClick={() => setShowReceivingModal(false)}
+                    onClick={handleCloseModal}
                     className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
                   >
                     <XCircle className="w-6 h-6 text-slate-400" />
@@ -564,12 +571,12 @@ export default function ReceivingEnhanced() {
                       </div>
                     </div>
 
-                    {/* Camera Preview — always in the DOM so html5-qrcode can find it */}
-                    <div className={`mt-4 ${showCamera ? 'block' : 'hidden'}`}>
+                    {/* Camera Preview — only displayed when user clicks the barcode/camera button */}
+                    <div className="mt-4" style={{ display: showCamera ? 'block' : 'none' }}>
                       <div
                         id={scannerRegionId}
                         className="rounded-lg overflow-hidden bg-black w-full"
-                        style={{ minHeight: '256px' }}
+                        style={{ minHeight: showCamera ? '256px' : '0px' }}
                       />
                       <p className="text-xs text-slate-600 mt-2 text-center">
                         Point the camera at a barcode. It will be detected automatically.

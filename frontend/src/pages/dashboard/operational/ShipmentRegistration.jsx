@@ -511,6 +511,29 @@ export default function ShipmentRegistration() {
             message: 'Shipment saved but some position reservations failed. Please reserve positions manually.' 
           });
         }
+
+        // Also sync to shipment_expected_items for receiving & QC scanning workflow
+        try {
+          const expectedItemsToRegister = formData.product_breakdown
+            .filter(item => item.product_id)
+            .map(item => ({
+              product_id: item.product_id,
+              product_size: item.dimensions || item.size || '',
+              expected_quantity: parseInt(item.quantity) || 0,
+              unit_price: parseFloat(item.unit_price) || 0,
+              notes: item.notes || ''
+            }));
+
+          if (expectedItemsToRegister.length > 0) {
+            await api.post('/receiving-qc/expected-items', {
+              shipment_id: savedShipment.id,
+              items: expectedItemsToRegister
+            });
+            console.log('✅ Registered expected items for receiving/QC workflow');
+          }
+        } catch (expectedErr) {
+          console.warn('⚠️ Could not register expected items for receiving-qc:', expectedErr);
+        }
       }
 
       setAlert({ 
