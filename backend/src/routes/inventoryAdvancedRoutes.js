@@ -7,7 +7,6 @@
  */
 
 import express from 'express';
-import { authMiddleware } from '../middleware/authMiddleware.js';
 import {
   getLowStockAlerts,
   getLowStockThresholds,
@@ -22,9 +21,6 @@ import {
 } from '../controllers/inventoryAdvancedController.js';
 
 const router = express.Router();
-
-// Apply authentication to all routes
-router.use(authMiddleware);
 
 // ──────────────────────────────────────────────────────────────────────────
 // LOW STOCK ALERTS

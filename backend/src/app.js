@@ -27,8 +27,6 @@ import warehouseLocationRoutes from './routes/warehouseLocationRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import inventoryRoutes from './routes/inventoryRoutes.js';
 import inventoryAdvancedRoutes from './routes/inventoryAdvancedRoutes.js';
-import warehouseOperationsRoutes from './routes/warehouseOperationsRoutes.js';
-import receivingQcRoutes from './routes/receivingQcRoutes.js';
 
 const app = express();
 
@@ -64,12 +62,6 @@ app.use('/api/inventory-units', inventoryRoutes);
 
 // Inventory Advanced Features (Low Stock, Analytics, Bulk Operations)
 app.use('/api/inventory', inventoryAdvancedRoutes);
-
-// Warehouse Operations (Receiving, Picking, Packing, Inspection, Counting)
-app.use('/api/warehouse', warehouseOperationsRoutes);
-
-// Enhanced Receiving & QC Inspection Workflow
-app.use('/api/receiving-qc', receivingQcRoutes);
 
 // Orders & Returns
 // Returns are sub-paths of orders: GET /api/orders/returns, POST /api/orders/returns

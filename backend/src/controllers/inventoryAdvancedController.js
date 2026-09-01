@@ -24,30 +24,24 @@ export async function getLowStockAlerts(req, res) {
 
     if (error) {
       console.error('Failed to fetch low stock alerts:', error);
-      console.error('Error details:', JSON.stringify(error, null, 2));
       return res.status(500).json({
         success: false,
-        error: 'Failed to fetch low stock alerts',
-        details: error.message
+        error: 'Failed to fetch low stock alerts'
       });
     }
 
-    console.log(`✅ Found ${data?.length || 0} low stock alerts`);
-
     return res.json({
       success: true,
-      alerts: data || [],
-      total: data?.length || 0,
-      critical: data?.filter(a => a.alert_level === 'CRITICAL').length || 0,
-      low: data?.filter(a => a.alert_level === 'LOW').length || 0
+      alerts: data,
+      total: data.length,
+      critical: data.filter(a => a.alert_level === 'CRITICAL').length,
+      low: data.filter(a => a.alert_level === 'LOW').length
     });
   } catch (error) {
     console.error('❌ Get low stock alerts error:', error);
-    console.error('Error stack:', error.stack);
     return res.status(500).json({
       success: false,
-      error: 'Failed to fetch low stock alerts',
-      details: error.message
+      error: 'Failed to fetch low stock alerts'
     });
   }
 }
@@ -539,7 +533,6 @@ export async function getInventoryAnalytics(req, res) {
  */
 export async function getDashboardStats(req, res) {
   try {
-    console.log('📊 Fetching dashboard stats...');
     const { warehouse_id } = req.query;
 
     // Get inventory counts
@@ -552,62 +545,31 @@ export async function getDashboardStats(req, res) {
     }
 
     const { data: inventory, error: invError } = await invQuery;
-    if (invError) {
-      console.error('Inventory query error:', invError);
-      throw invError;
-    }
+    if (invError) throw invError;
 
-    console.log(`✅ Found ${inventory?.length || 0} inventory units`);
+    // Get low stock alerts count
+    const { data: alerts, error: alertError } = await supabaseAdmin
+      .rpc('check_low_stock_alerts');
+    if (alertError) throw alertError;
 
-    // Get low stock alerts count - with fallback
-    let alertsCount = 0;
-    let criticalCount = 0;
-    
-    try {
-      const { data: alerts, error: alertError } = await supabaseAdmin
-        .rpc('check_low_stock_alerts');
-      
-      if (alertError) {
-        console.warn('Low stock alerts RPC warning:', alertError.message);
-        // Don't throw, just log and use default values
-      } else {
-        alertsCount = alerts?.length || 0;
-        criticalCount = alerts?.filter(a => a.alert_level === 'CRITICAL').length || 0;
-      }
-    } catch (alertErr) {
-      console.warn('Low stock alerts failed, using defaults:', alertErr.message);
-    }
-
-    // Get recent movements - with fallback
-    let movementsCount = 0;
-    try {
-      const { data: recentMovements, error: movError } = await supabaseAdmin
-        .from('stock_movements')
-        .select('movement_type, executed_at')
-        .gte('executed_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
-        .order('executed_at', { ascending: false });
-      
-      if (movError) {
-        console.warn('Stock movements warning:', movError.message);
-      } else {
-        movementsCount = recentMovements?.length || 0;
-      }
-    } catch (movErr) {
-      console.warn('Stock movements failed, using defaults:', movErr.message);
-    }
+    // Get recent movements
+    const { data: recentMovements, error: movError } = await supabaseAdmin
+      .from('stock_movements')
+      .select('movement_type, executed_at')
+      .gte('executed_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      .order('executed_at', { ascending: false });
+    if (movError) throw movError;
 
     const stats = {
-      totalUnits: inventory?.length || 0,
-      available: inventory?.filter(i => ['NEW', 'AVAILABLE'].includes(i.status)).length || 0,
-      sold: inventory?.filter(i => i.status === 'SOLD').length || 0,
-      returned: inventory?.filter(i => i.status === 'RETURNED').length || 0,
-      damaged: inventory?.filter(i => i.status === 'DAMAGED').length || 0,
-      lowStockAlerts: alertsCount,
-      criticalAlerts: criticalCount,
-      movementsToday: movementsCount
+      totalUnits: inventory.length,
+      available: inventory.filter(i => ['NEW', 'AVAILABLE'].includes(i.status)).length,
+      sold: inventory.filter(i => i.status === 'SOLD').length,
+      returned: inventory.filter(i => i.status === 'RETURNED').length,
+      damaged: inventory.filter(i => i.status === 'DAMAGED').length,
+      lowStockAlerts: alerts.length,
+      criticalAlerts: alerts.filter(a => a.alert_level === 'CRITICAL').length,
+      movementsToday: recentMovements.length
     };
-
-    console.log('✅ Dashboard stats:', stats);
 
     return res.json({
       success: true,
@@ -615,11 +577,9 @@ export async function getDashboardStats(req, res) {
     });
   } catch (error) {
     console.error('❌ Get dashboard stats error:', error);
-    console.error('Error stack:', error.stack);
     return res.status(500).json({
       success: false,
-      error: 'Failed to fetch dashboard stats',
-      details: error.message
+      error: 'Failed to fetch dashboard stats'
     });
   }
 }

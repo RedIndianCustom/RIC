@@ -300,15 +300,14 @@ export default function BatchManagement() {
   const handleDelete = async (id) => {
     try {
       setLoading(true);
-      // Use DELETE endpoint - backend already does soft delete (sets status to INACTIVE)
       await deleteBatch(id);
-      setSuccess('Batch deactivated successfully');
+      setSuccess('Batch deleted successfully');
       setTimeout(() => setSuccess(''), 3000);
       setDeleteConfirm(null);
       await loadData();
     } catch (err) {
-      console.error('Error deactivating batch:', err);
-      setError(err.response?.data?.error || 'Failed to deactivate batch');
+      console.error('Error deleting batch:', err);
+      setError(err.response?.data?.error || 'Failed to delete batch');
       setTimeout(() => setError(null), 5000);
     } finally {
       setLoading(false);
@@ -1019,7 +1018,6 @@ export default function BatchManagement() {
           filteredBatches.map((batch, index) => {
             const statusStyle = getStatusBadge(batch.status);
             const StatusIcon = statusStyle.icon;
-            const canDeactivate = batch.status === 'ACTIVE'; // Only allow deactivating ACTIVE batches
 
             return (
               <motion.div
@@ -1070,15 +1068,13 @@ export default function BatchManagement() {
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      {canDeactivate && (
-                        <button
-                          onClick={() => setDeleteConfirm(batch.id)}
-                          className="p-2.5 rounded-xl bg-red-50 border-2 border-red-200 text-red-700 hover:bg-red-100 transition-all"
-                          title="Deactivate"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setDeleteConfirm(batch.id)}
+                        className="p-2.5 rounded-xl bg-red-50 border-2 border-red-200 text-red-700 hover:bg-red-100 transition-all"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
 
@@ -1173,8 +1169,8 @@ export default function BatchManagement() {
                             <AlertTriangle className="w-5 h-5 text-red-600" />
                           </div>
                           <div>
-                            <p className="text-sm font-bold text-red-900">Deactivate this batch?</p>
-                            <p className="text-xs text-red-700">Status will be changed to INACTIVE. The batch record will be preserved.</p>
+                            <p className="text-sm font-bold text-red-900">Delete this batch?</p>
+                            <p className="text-xs text-red-700">This action cannot be undone</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1189,7 +1185,7 @@ export default function BatchManagement() {
                             disabled={loading}
                             className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/40 disabled:opacity-50 transition-all"
                           >
-                            {loading ? 'Deactivating...' : 'Deactivate'}
+                            {loading ? 'Deleting...' : 'Delete'}
                           </button>
                         </div>
                       </div>
