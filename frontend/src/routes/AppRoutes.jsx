@@ -204,10 +204,13 @@ export default function AppRoutes() {
           {/* ══════════════════════════════════════════════════
               WAREHOUSE STAFF
           ═══════════════════════════════════════════════════ */}
+          <Route element={<RoleRoute allowed={[WH, A]} />}>
+            <Route path="/warehouse/qc-inspection"      element={<QCInspectionEnhanced />} />
+          </Route>
+          
           <Route element={<RoleRoute allowed={[WH, M, A]} />}>
             <Route path="/receiving"                    element={<ReceivingEnhanced />} />
             <Route path="/warehouse/receiving-enhanced" element={<ReceivingWithScanningEnhanced />} />
-            <Route path="/warehouse/qc-inspection"      element={<QCInspectionEnhanced />} />
             <Route path="/warehouse/scan"               element={<ScanProductsEnhanced />} />
             <Route path="/scan-products"                element={<ScanProductsEnhanced />} />
             <Route path="/inspection"                   element={<Inspection />} />

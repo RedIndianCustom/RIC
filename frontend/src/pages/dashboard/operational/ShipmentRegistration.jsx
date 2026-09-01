@@ -435,6 +435,9 @@ export default function ShipmentRegistration() {
       return;
     }
     
+    // Declare this at function scope so it's accessible everywhere
+    let expectedItemsToRegister = [];
+    
     try {
       setLoading(true);
       
@@ -514,7 +517,7 @@ export default function ShipmentRegistration() {
 
         // Also sync to shipment_expected_items for receiving & QC scanning workflow
         try {
-          const expectedItemsToRegister = formData.product_breakdown
+          expectedItemsToRegister = formData.product_breakdown
             .filter(item => item.product_id)
             .map(item => ({
               product_id: item.product_id,
@@ -524,22 +527,45 @@ export default function ShipmentRegistration() {
               notes: item.notes || ''
             }));
 
+          console.log('📦 Registering expected items:', expectedItemsToRegister);
+          console.log('📦 Shipment ID:', savedShipment.id);
+          console.log('📦 Items count:', expectedItemsToRegister.length);
+
           if (expectedItemsToRegister.length > 0) {
-            await api.post('/receiving-qc/expected-items', {
+            const response = await api.post('/receiving-qc/expected-items', {
               shipment_id: savedShipment.id,
               items: expectedItemsToRegister
             });
-            console.log('✅ Registered expected items for receiving/QC workflow');
+            console.log('✅ Registered expected items for receiving/QC workflow:', response.data);
+            setAlert({ 
+              type: 'success', 
+              message: `${editingShipment ? 'Shipment updated' : 'Shipment created'} and ${expectedItemsToRegister.length} expected items registered for receiving!`
+            });
+          } else {
+            console.warn('⚠️ No items to register (no product_id found)');
+            setAlert({ 
+              type: 'warning', 
+              message: `${editingShipment ? 'Shipment updated' : 'Shipment created'} but no expected items registered. Please add products with valid IDs.`
+            });
           }
         } catch (expectedErr) {
-          console.warn('⚠️ Could not register expected items for receiving-qc:', expectedErr);
+          console.error('❌ Failed to register expected items for receiving-qc:', expectedErr);
+          console.error('❌ Error details:', expectedErr.response?.data);
+          // Show error to user
+          setAlert({ 
+            type: 'error', 
+            message: `Shipment saved but failed to register expected items: ${expectedErr.response?.data?.error || expectedErr.message}. Go to Receiving page to manually register items.`
+          });
         }
       }
 
-      setAlert({ 
-        type: 'success', 
-        message: editingShipment ? 'Shipment updated successfully!' : 'Shipment created successfully!' 
-      });
+      // Don't override alert if we already set one above
+      if (expectedItemsToRegister.length === 0) {
+        setAlert({ 
+          type: 'success', 
+          message: editingShipment ? 'Shipment updated successfully!' : 'Shipment created successfully!' 
+        });
+      }
 
       resetForm();
       await loadData();

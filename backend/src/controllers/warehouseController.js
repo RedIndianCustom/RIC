@@ -323,6 +323,209 @@ export async function scanInventoryUnit(req, res) {
 }
 
 /**
+ * POST /api/warehouse/validate-barcode-size
+ * Validate that a scanned barcode matches the expected product size
+ * Body: { barcode, expected_size, shipment_id }
+ * 
+ * NOTE: Barcodes are generated as RIC + 12-digit sequential number (e.g., RIC000000000001)
+ * Size information is NOT embedded in the barcode - it's stored in the linked product record
+ */
+export async function validateBarcodeSize(req, res) {
+  try {
+    let { barcode, expected_size, shipment_id } = req.body;
+
+    console.log('🔍 POST /api/warehouse/validate-barcode-size');
+    console.log('   barcode (raw):', barcode);
+    console.log('   expected_size:', expected_size);
+    console.log('   expected_size type:', typeof expected_size);
+    console.log('   expected_size length:', expected_size?.length);
+    console.log('   shipment_id:', shipment_id);
+
+    if (!barcode || !expected_size) {
+      return res.status(400).json({
+        success: false,
+        error: 'Barcode and expected_size are required'
+      });
+    }
+
+    // ✅ EXTRACT BARCODE FROM URL if it's a full URL
+    // QR codes contain full URL like: http://localhost:5173/trace/RIC000000005906
+    // We need just: RIC000000005906
+    if (barcode.includes('/trace/') || barcode.includes('http://') || barcode.includes('https://')) {
+      const urlParts = barcode.split('/');
+      barcode = urlParts[urlParts.length - 1]; // Get last part after final /
+      console.log('   ✅ Extracted barcode from URL:', barcode);
+    }
+
+    // Additional cleanup - remove any query parameters or fragments
+    barcode = barcode.split('?')[0].split('#')[0].trim();
+    console.log('   Final barcode value:', barcode);
+
+    // ✅ PRIMARY METHOD: Query database for barcode and get linked product
+    // Barcodes format: RIC000000000001, RIC000000000002, etc.
+    // Size is stored in the products table via product_id foreign key
+    
+    const { data: barcodeData, error: barcodeError } = await supabaseAdmin
+      .from('barcodes')
+      .select(`
+        id,
+        barcode_value,
+        product_id,
+        batch_id,
+        products (
+          id,
+          sku,
+          brand,
+          model,
+          product_name,
+          dimensions,
+          product_code,
+          category
+        ),
+        batches (
+          id,
+          batch_number
+        )
+      `)
+      .eq('barcode_value', barcode)
+      .single();
+
+    if (barcodeData && barcodeData.products) {
+      // Found in database - validate against product dimensions
+      const product = barcodeData.products;
+      const actualSize = product.dimensions || '';
+      
+      console.log('📏 Size comparison (from database):');
+      console.log('   Expected:', expected_size);
+      console.log('   Actual from product.dimensions:', actualSize);
+      console.log('   Product:', product);
+
+      // ✅ Check if product has valid dimensions
+      if (!actualSize || actualSize.trim() === '' || actualSize === '000/00-00') {
+        console.error('❌ PRODUCT HAS INVALID DIMENSIONS!');
+        console.error('   Product ID:', product.id);
+        console.error('   SKU:', product.sku);
+        console.error('   Dimensions field:', actualSize || 'EMPTY');
+        
+        return res.status(400).json({
+          success: false,
+          message: `Barcode found but product has no size information. Product: ${product.brand} ${product.model} (SKU: ${product.sku})`,
+          expected_size: expected_size,
+          actual_size: actualSize || '000/00-00',
+          source: 'database',
+          error_type: 'INVALID_PRODUCT_DIMENSIONS',
+          product: {
+            id: product.id,
+            sku: product.sku,
+            brand: product.brand,
+            model: product.model,
+            name: product.product_name,
+            category: product.category
+          },
+          hint: 'The product in the database needs to have the dimensions field filled in. Please update the product or regenerate barcodes with a product that has valid dimensions.'
+        });
+      }
+
+      // Normalize size for comparison - MORE FLEXIBLE
+      const normalizeSize = (size) => {
+        if (!size) return '';
+        
+        return size.toString()
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, '')          // Remove all whitespace
+          .replace(/[\/\-_]/g, '/')     // Convert all separators to /
+          .replace(/[^\d\/]/g, '')      // Remove non-digits and non-slashes
+          || '';
+      };
+
+      const normalizedExpected = normalizeSize(expected_size);
+      const normalizedActual = normalizeSize(actualSize);
+
+      console.log('   Normalized Expected:', normalizedExpected);
+      console.log('   Normalized Actual:', normalizedActual);
+      console.log('   Raw Expected:', expected_size);
+      console.log('   Raw Actual:', actualSize);
+
+      // FLEXIBLE MATCH - handles different formats
+      // Matches: "90/90-17", "90/90/17", "90-90-17", " 90 / 90 - 17 ", etc.
+      if (normalizedActual === normalizedExpected) {
+        console.log('✅ Size match! Barcode is for the correct product size.');
+        return res.json({
+          success: true,
+          message: 'Barcode validated successfully - correct size',
+          source: 'database',
+          product: {
+            id: product.id,
+            sku: product.sku,
+            brand: product.brand,
+            model: product.model,
+            name: product.name,
+            size: actualSize,
+            category: product.category
+          },
+          batch: barcodeData.batches ? {
+            id: barcodeData.batches.id,
+            batch_number: barcodeData.batches.batch_number
+          } : null
+        });
+      } else {
+        // ❌ Wrong size detected
+        console.warn('❌ SIZE MISMATCH!');
+        console.warn(`   Scanned barcode is for size: "${actualSize}"`);
+        console.warn(`   But you selected size: "${expected_size}"`);
+        console.warn(`   Product: ${product.brand} ${product.model}`);
+        
+        return res.json({
+          success: false,
+          message: `Wrong size! This barcode is for ${actualSize}, but you selected ${expected_size}`,
+          expected_size: expected_size,
+          actual_size: actualSize,
+          source: 'database',
+          product: {
+            id: product.id,
+            sku: product.sku,
+            brand: product.brand,
+            model: product.model,
+            name: product.product_name,
+            category: product.category
+          },
+          batch: barcodeData.batches ? {
+            id: barcodeData.batches.id,
+            batch_number: barcodeData.batches.batch_number
+          } : null
+        });
+      }
+    }
+
+    // Barcode not found in database
+    if (barcodeError) {
+      console.error('❌ Database error:', barcodeError);
+    }
+    
+    console.warn('⚠️ Barcode not found in system');
+    console.warn('   Barcode:', barcode);
+    console.warn('   This barcode has not been generated yet or does not exist');
+    
+    return res.status(404).json({
+      success: false,
+      message: 'Barcode not found in the system. Please generate barcodes first before scanning.',
+      source: 'not_found',
+      barcode_received: barcode,
+      expected_size: expected_size,
+      hint: 'Generate barcodes for this product batch in the Barcode Generation page first'
+    });
+
+  } catch (error) {
+    console.error('❌ Validate barcode size error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to validate barcode size'
+    });
+  }
+}
+
+/**
  * GET /api/warehouses/:warehouseId/racks/:rackId/capacity
  * Get real-time capacity usage for all shelves/sections/subsections in a rack
  * Returns tire counts with capacity limits

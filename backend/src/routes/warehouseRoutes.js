@@ -11,7 +11,8 @@ import {
   getRackLocations,
   relocateInventoryUnit,
   scanInventoryUnit,
-  getRackCapacity
+  getRackCapacity,
+  validateBarcodeSize
 } from '../controllers/warehouseController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requireRole } from '../middleware/roleMiddleware.js';
@@ -23,7 +24,10 @@ const router = express.Router();
 // ============================================================================
 
 // Scan barcode (read-only for warehouse staff)
-router.get('/scan/:barcode_value', authenticate, scanInventoryUnit);
+router.get('/inventory/scan/:barcode_value', authenticate, scanInventoryUnit);
+
+// Validate barcode matches expected size during receiving
+router.post('/warehouse/validate-barcode-size', authenticate, validateBarcodeSize);
 
 // ============================================================================
 // AUTHENTICATED ROUTES

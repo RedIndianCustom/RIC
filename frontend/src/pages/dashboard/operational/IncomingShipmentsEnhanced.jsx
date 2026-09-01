@@ -59,6 +59,64 @@ export default function IncomingShipmentsEnhanced() {
     try {
       setSendingId(shipment.id);
 
+      // FIRST: Check if expected items are registered, if not, register them now
+      try {
+        console.log('🔍 Checking expected items for shipment:', shipment.id);
+        const { data: checkData } = await api.get(`/receiving-qc/expected-items/${shipment.id}`);
+        const existingItems = checkData.data || [];
+        
+        console.log('📦 Existing expected items:', existingItems);
+        
+        // If no expected items found, register them from product_breakdown
+        if (existingItems.length === 0 && shipment.product_breakdown) {
+          console.log('⚠️ No expected items found, registering from product_breakdown...');
+          
+          // Transform product_breakdown to expected items format
+          const itemsToRegister = [];
+          
+          // Handle different product_breakdown formats
+          if (Array.isArray(shipment.product_breakdown)) {
+            // Array format: [{product_id, dimensions, quantity, ...}]
+            itemsToRegister.push(...shipment.product_breakdown
+              .filter(item => item.product_id)
+              .map(item => ({
+                product_id: item.product_id,
+                product_size: item.dimensions || item.size || '',
+                expected_quantity: parseInt(item.quantity) || 0,
+                unit_price: parseFloat(item.unit_price) || 0,
+                notes: item.notes || ''
+              })));
+          } else if (typeof shipment.product_breakdown === 'object') {
+            // Object format: {"120/80-17": {quantity: 28, ...}}
+            // We need to find products by size
+            console.warn('⚠️ Object format product_breakdown - cannot auto-register without product_id');
+          }
+          
+          if (itemsToRegister.length > 0) {
+            await api.post('/receiving-qc/expected-items', {
+              shipment_id: shipment.id,
+              items: itemsToRegister
+            });
+            console.log(`✅ Registered ${itemsToRegister.length} expected items for receiving/QC`);
+            setAlert({ 
+              type: 'info', 
+              message: `Registered ${itemsToRegister.length} expected items for receiving workflow...` 
+            });
+          } else {
+            console.error('❌ Could not register expected items - no product_id found in product_breakdown');
+            setAlert({ 
+              type: 'warning', 
+              message: 'Warning: No expected items found. Warehouse may not be able to scan items. Please edit shipment and add product details.' 
+            });
+          }
+        } else {
+          console.log(`✅ Expected items already registered: ${existingItems.length} items`);
+        }
+      } catch (expectedErr) {
+        console.error('❌ Error checking/registering expected items:', expectedErr);
+        // Continue anyway - warehouse can manually handle this
+      }
+
       // Update shipment status to IN_TRANSIT (ready for warehouse)
       await api.put(`/shipments/${shipment.id}`, {
         status: 'IN_TRANSIT'

@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ClipboardCheck, Search, Camera, CheckCircle, XCircle, AlertTriangle, 
   X, ChevronRight, Clock, Upload, Image as ImageIcon, Trash2, 
-  FileText, TrendingUp, Calendar, AlertCircle
+  FileText, TrendingUp, Calendar, AlertCircle, Package, BarChart3, Info, Video, SwitchCamera
 } from 'lucide-react';
 import api from '../../../services/api';
+import BarcodeScanner from '../../../components/scanner/BarcodeScanner';
 
 export default function QCInspectionEnhanced() {
   const [inspections, setInspections] = useState([]);
@@ -14,6 +15,8 @@ export default function QCInspectionEnhanced() {
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [inspectedItems, setInspectedItems] = useState([]); // Track all inspected items
+  const [showReport, setShowReport] = useState(false); // Toggle report view
   
   // Inspection form state
   const [classification, setClassification] = useState('GOOD');
@@ -27,6 +30,8 @@ export default function QCInspectionEnhanced() {
   const [photos, setPhotos] = useState([]);
   const [qualityNotes, setQualityNotes] = useState('');
   const [scanInput, setScanInput] = useState('');
+  const [productInfo, setProductInfo] = useState(null); // Store product details
+  const [showCamera, setShowCamera] = useState(false); // Camera modal state
   
   const scanInputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -66,6 +71,8 @@ export default function QCInspectionEnhanced() {
       setLoading(true);
       const { data } = await api.get(`/receiving-qc/qc-inspection/${inspection.id}`);
       setSelectedInspection(data.data);
+      setInspectedItems(data.data.items || []); // Load previously inspected items
+      setShowReport(false); // Start in inspection mode
       resetItemForm();
     } catch (error) {
       console.error('Error loading inspection details:', error);
@@ -90,19 +97,73 @@ export default function QCInspectionEnhanced() {
     setScanInput('');
   };
 
-  const handleScan = (e) => {
+  const handleScan = async (e) => {
     e.preventDefault();
     
     if (!scanInput.trim()) return;
 
-    // Set current item for inspection
-    setCurrentItem({
-      barcode: scanInput.trim(),
-      product_id: null, // Will be determined from shipment
-      product_size: ''
-    });
+    const barcode = scanInput.trim();
+    await processBarcode(barcode);
+  };
 
-    setScanInput('');
+  const handleCameraScan = async (barcode) => {
+    setShowCamera(false);
+    await processBarcode(barcode);
+  };
+
+  const processBarcode = async (barcode) => {
+    try {
+      setLoading(true);
+      
+      // Fetch product info from barcode using traceability endpoint
+      const { data } = await api.get(`/barcodes/trace/${barcode}`);
+      
+      if (data.success && data.traceability) {
+        const trace = data.traceability;
+        
+        // Extract product details from traceability data
+        const product = trace.product || {};
+        const batch = trace.batch || {};
+        
+        setProductInfo({
+          barcode: barcode,
+          product_name: product.product_name || product.model || product.name || 'Unknown Product',
+          product_brand: product.brand || '',
+          product_size: product.dimensions || product.size || '',
+          product_id: product.id || null
+        });
+        
+        // Set current item for inspection
+        setCurrentItem({
+          barcode: barcode,
+          product_id: product.id,
+          product_size: product.dimensions || product.size || '',
+          product_name: product.product_name || product.model || product.name || 'Unknown Product',
+          product_brand: product.brand || ''
+        });
+        
+        setAlert({ type: 'success', message: `Product loaded: ${product.product_name || product.model || product.name || 'Unknown'}` });
+      } else {
+        setAlert({ type: 'error', message: 'Barcode not found in system' });
+      }
+      
+    } catch (error) {
+      console.error('Error looking up barcode:', error);
+      
+      // If lookup fails, still allow inspection with manual entry
+      setCurrentItem({
+        barcode: barcode,
+        product_id: null,
+        product_size: '',
+        product_name: 'Unknown Product',
+        product_brand: ''
+      });
+      
+      setAlert({ type: 'warning', message: 'Could not load product details. Please verify manually.' });
+    } finally {
+      setScanInput('');
+      setLoading(false);
+    }
   };
 
   const handlePhotoUpload = (e) => {
@@ -142,10 +203,10 @@ export default function QCInspectionEnhanced() {
       // Upload photos first (in production)
       const photoUrls = photos.map(p => p.preview); // Replace with actual upload URLs
 
-      const { data } = await api.post('/receiving-qc/qc-inspection/record-item', {
+      const payload = {
         qc_inspection_id: selectedInspection.id,
         barcode: currentItem.barcode,
-        product_id: selectedInspection.shipment?.product_breakdown?.[0]?.product_id, // Simplified
+        product_id: currentItem.product_id,
         product_size: currentItem.product_size,
         classification,
         defect_type: classification !== 'GOOD' ? defectType : null,
@@ -157,17 +218,35 @@ export default function QCInspectionEnhanced() {
         suggested_discount_percentage: discountPercentage ? parseFloat(discountPercentage) : null,
         photos: photoUrls,
         quality_notes: qualityNotes
-      });
+      };
 
-      setAlert({ type: 'success', message: `Item ${currentItem.barcode} inspected and recorded` });
+      const { data } = await api.post('/receiving-qc/qc-inspection/record-item', payload);
+
+      // Add to inspected items list
+      const newItem = {
+        ...currentItem,
+        classification,
+        defect_type: defectType,
+        defect_severity: defectSeverity,
+        quality_notes: qualityNotes,
+        inspected_at: new Date().toISOString()
+      };
+      
+      setInspectedItems(prev => [...prev, newItem]);
+
+      setAlert({ type: 'success', message: `${currentItem.product_name} (${currentItem.product_size}) inspected successfully` });
       
       // Update local inspection state
       setSelectedInspection(prev => ({
         ...prev,
-        items_inspected: (prev.items_inspected || 0) + 1
+        items_inspected: (prev.items_inspected || 0) + 1,
+        good_quality_count: classification === 'GOOD' ? (prev.good_quality_count || 0) + 1 : prev.good_quality_count,
+        minor_defect_count: classification === 'MINOR_DEFECT' ? (prev.minor_defect_count || 0) + 1 : prev.minor_defect_count,
+        major_defect_count: classification === 'MAJOR_DEFECT' ? (prev.major_defect_count || 0) + 1 : prev.major_defect_count
       }));
 
       resetItemForm();
+      setProductInfo(null);
     } catch (error) {
       console.error('Error recording inspection:', error);
       setAlert({ type: 'error', message: error.response?.data?.error || 'Failed to record inspection' });
@@ -224,6 +303,250 @@ export default function QCInspectionEnhanced() {
     inspection.shipment_number?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Calculate statistics for report
+  const stats = {
+    total: inspectedItems.length,
+    good: inspectedItems.filter(i => i.classification === 'GOOD').length,
+    minor: inspectedItems.filter(i => i.classification === 'MINOR_DEFECT').length,
+    major: inspectedItems.filter(i => i.classification === 'MAJOR_DEFECT').length,
+    goodPercent: inspectedItems.length > 0 ? ((inspectedItems.filter(i => i.classification === 'GOOD').length / inspectedItems.length) * 100).toFixed(1) : 0,
+    minorPercent: inspectedItems.length > 0 ? ((inspectedItems.filter(i => i.classification === 'MINOR_DEFECT').length / inspectedItems.length) * 100).toFixed(1) : 0,
+    majorPercent: inspectedItems.length > 0 ? ((inspectedItems.filter(i => i.classification === 'MAJOR_DEFECT').length / inspectedItems.length) * 100).toFixed(1) : 0
+  };
+
+  // Inspection Report View
+  if (selectedInspection && showReport) {
+    return (
+      <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
+        {/* Header - Mobile Responsive */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
+              QC Inspection Report
+            </h2>
+            <p className="text-sm sm:text-base text-gray-600 mt-1 truncate">
+              {selectedInspection.inspection_number}
+            </p>
+            <p className="text-xs sm:text-sm text-gray-500 truncate">
+              Shipment: {selectedInspection.shipment?.shipment_number}
+            </p>
+          </div>
+          
+          <div className="flex gap-2 sm:gap-3 flex-shrink-0">
+            <button
+              onClick={() => setShowReport(false)}
+              className="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm sm:text-base"
+            >
+              <span className="hidden sm:inline">Back to Inspection</span>
+              <span className="sm:hidden">Back</span>
+            </button>
+            <button
+              onClick={() => setSelectedInspection(null)}
+              className="p-2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-5 h-5 sm:w-6 sm:h-6" />
+            </button>
+          </div>
+        </div>
+
+        {/* Statistics Cards - Mobile Responsive Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-gray-600 truncate">Total Inspected</p>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-1">{stats.total}</p>
+              </div>
+              <Package className="w-8 h-8 sm:w-10 sm:h-10 text-blue-600 flex-shrink-0" />
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl shadow-md border border-green-200 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-green-700 font-medium truncate">Good Quality</p>
+                <p className="text-2xl sm:text-3xl font-bold text-green-900 mt-1">{stats.good}</p>
+                <p className="text-xs sm:text-sm text-green-600 mt-1">{stats.goodPercent}%</p>
+              </div>
+              <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-green-600 flex-shrink-0" />
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-xl shadow-md border border-yellow-200 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-yellow-700 font-medium truncate">Minor Defects</p>
+                <p className="text-2xl sm:text-3xl font-bold text-yellow-900 mt-1">{stats.minor}</p>
+                <p className="text-xs sm:text-sm text-yellow-600 mt-1">{stats.minorPercent}%</p>
+              </div>
+              <AlertTriangle className="w-8 h-8 sm:w-10 sm:h-10 text-yellow-600 flex-shrink-0" />
+            </div>
+          </div>
+
+          <div className="bg-gradient-to-br from-red-50 to-rose-50 rounded-xl shadow-md border border-red-200 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs sm:text-sm text-red-700 font-medium truncate">Major Defects</p>
+                <p className="text-2xl sm:text-3xl font-bold text-red-900 mt-1">{stats.major}</p>
+                <p className="text-xs sm:text-sm text-red-600 mt-1">{stats.majorPercent}%</p>
+              </div>
+              <XCircle className="w-8 h-8 sm:w-10 sm:h-10 text-red-600 flex-shrink-0" />
+            </div>
+          </div>
+        </div>
+
+        {/* Quality Distribution Chart - Mobile Responsive */}
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
+          <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+            <span className="truncate">Quality Distribution</span>
+          </h3>
+          <div className="space-y-3 sm:space-y-4">
+            <div>
+              <div className="flex justify-between mb-1 sm:mb-2 text-xs sm:text-sm">
+                <span className="font-medium text-green-700 truncate">Good Quality</span>
+                <span className="font-bold text-green-900 flex-shrink-0 ml-2">{stats.good} ({stats.goodPercent}%)</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 sm:h-4">
+                <div 
+                  className="bg-gradient-to-r from-green-500 to-emerald-600 h-3 sm:h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${stats.goodPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1 sm:mb-2 text-xs sm:text-sm">
+                <span className="font-medium text-yellow-700 truncate">Minor Defects</span>
+                <span className="font-bold text-yellow-900 flex-shrink-0 ml-2">{stats.minor} ({stats.minorPercent}%)</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 sm:h-4">
+                <div 
+                  className="bg-gradient-to-r from-yellow-500 to-amber-600 h-3 sm:h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${stats.minorPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1 sm:mb-2 text-xs sm:text-sm">
+                <span className="font-medium text-red-700 truncate">Major Defects</span>
+                <span className="font-bold text-red-900 flex-shrink-0 ml-2">{stats.major} ({stats.majorPercent}%)</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3 sm:h-4">
+                <div 
+                  className="bg-gradient-to-r from-red-500 to-rose-600 h-3 sm:h-4 rounded-full transition-all duration-500"
+                  style={{ width: `${stats.majorPercent}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Inspected Items List - Mobile Responsive */}
+        <div className="bg-white rounded-xl shadow-md border border-gray-200">
+          <div className="p-4 sm:p-6 border-b border-gray-200">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+              <span>Inspection Details ({inspectedItems.length})</span>
+            </h3>
+          </div>
+          
+          <div className="divide-y divide-gray-200">
+            {inspectedItems.length === 0 ? (
+              <div className="p-6 sm:p-8 text-center text-gray-500">
+                <Package className="w-10 h-10 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-sm sm:text-base">No items inspected yet</p>
+              </div>
+            ) : (
+              inspectedItems.map((item, index) => (
+                <div key={index} className="p-3 sm:p-4 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className="text-xs sm:text-sm font-mono text-gray-600 flex-shrink-0">#{index + 1}</span>
+                        <h4 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
+                          {item.product_name || 'Unknown Product'}
+                        </h4>
+                        {item.product_brand && (
+                          <span className="text-xs sm:text-sm text-gray-600 hidden sm:inline">({item.product_brand})</span>
+                        )}
+                        <span className={`px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs font-medium ${
+                          item.classification === 'GOOD' 
+                            ? 'bg-green-100 text-green-700' 
+                            : item.classification === 'MINOR_DEFECT'
+                            ? 'bg-yellow-100 text-yellow-700'
+                            : 'bg-red-100 text-red-700'
+                        }`}>
+                          {item.classification === 'GOOD' ? 'Good' : 
+                           item.classification === 'MINOR_DEFECT' ? 'Minor' : 
+                           'Major'}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs sm:text-sm">
+                        <div className="truncate">
+                          <span className="text-gray-600">Barcode:</span>
+                          <span className="ml-1 sm:ml-2 font-mono text-gray-900">{item.barcode}</span>
+                        </div>
+                        <div className="truncate">
+                          <span className="text-gray-600">Size:</span>
+                          <span className="ml-1 sm:ml-2 font-medium text-gray-900">{item.product_size || 'N/A'}</span>
+                        </div>
+                        {item.defect_type && (
+                          <div className="truncate">
+                            <span className="text-gray-600">Defect:</span>
+                            <span className="ml-1 sm:ml-2 font-medium text-gray-900">{item.defect_type}</span>
+                          </div>
+                        )}
+                        {item.defect_severity && (
+                          <div className="truncate">
+                            <span className="text-gray-600">Severity:</span>
+                            <span className="ml-1 sm:ml-2 font-medium text-gray-900">{item.defect_severity}</span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {item.quality_notes && (
+                        <p className="mt-2 text-xs sm:text-sm text-gray-600 bg-gray-50 p-2 rounded break-words">
+                          {item.quality_notes}
+                        </p>
+                      )}
+                    </div>
+                    
+                    {item.classification === 'GOOD' ? (
+                      <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 text-green-600 flex-shrink-0" />
+                    ) : item.classification === 'MINOR_DEFECT' ? (
+                      <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-yellow-600 flex-shrink-0" />
+                    ) : (
+                      <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-red-600 flex-shrink-0" />
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Complete Inspection Button - Mobile Responsive */}
+        {selectedInspection.items_inspected >= selectedInspection.total_items && (
+          <div className="flex justify-end px-2 sm:px-0">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={completeInspection}
+              disabled={loading}
+              className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 font-semibold disabled:opacity-50 flex items-center justify-center gap-2 text-sm sm:text-base"
+            >
+              <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+              Complete QC Inspection
+            </motion.button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // Inspection Form View
   if (selectedInspection) {
     const progress = selectedInspection.total_items > 0 
@@ -231,23 +554,26 @@ export default function QCInspectionEnhanced() {
       : 0;
 
     return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              QC Inspection: {selectedInspection.inspection_number}
+      <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
+        {/* Header - Mobile Responsive */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
+              QC Inspection
             </h2>
-            <p className="text-gray-600 mt-1">
+            <p className="text-sm sm:text-base text-gray-600 mt-1 truncate">
+              {selectedInspection.inspection_number}
+            </p>
+            <p className="text-xs sm:text-sm text-gray-500 truncate">
               Shipment: {selectedInspection.shipment?.shipment_number}
             </p>
           </div>
           
           <button
             onClick={() => setSelectedInspection(null)}
-            className="text-gray-400 hover:text-gray-600"
+            className="self-end sm:self-auto text-gray-400 hover:text-gray-600"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
 
@@ -258,7 +584,7 @@ export default function QCInspectionEnhanced() {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className={`p-4 rounded-lg ${
+              className={`p-3 sm:p-4 rounded-lg text-sm sm:text-base ${
                 alert.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
               }`}
             >
@@ -267,97 +593,147 @@ export default function QCInspectionEnhanced() {
           )}
         </AnimatePresence>
 
-        {/* Progress & Deadline */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Progress</h3>
-              <span className="text-2xl font-bold text-blue-600">{Math.round(progress)}%</span>
+        {/* Progress & Deadline & Actions - Mobile Responsive Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <h3 className="text-sm sm:text-base font-semibold text-gray-900">Progress</h3>
+              <span className="text-xl sm:text-2xl font-bold text-blue-600">{Math.round(progress)}%</span>
             </div>
-            <p className="text-sm text-gray-600 mb-2">
-              {selectedInspection.items_inspected} of {selectedInspection.total_items} items inspected
+            <p className="text-xs sm:text-sm text-gray-600 mb-2">
+              {selectedInspection.items_inspected} of {selectedInspection.total_items} items
             </p>
-            <div className="w-full bg-gray-200 rounded-full h-3">
+            <div className="w-full bg-gray-200 rounded-full h-2 sm:h-3">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${progress}%` }}
-                className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full"
+                className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 sm:h-3 rounded-full"
               />
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-gray-900">Deadline</h3>
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <h3 className="text-sm sm:text-base font-semibold text-gray-900">Deadline</h3>
               {(() => {
                 const status = getDeadlineStatus(selectedInspection.due_date, selectedInspection.is_overdue);
                 const StatusIcon = status.icon;
                 return (
-                  <div className={`flex items-center gap-2 text-${status.color}-600`}>
-                    <StatusIcon className="w-5 h-5" />
-                    <span className="font-bold">{status.text}</span>
+                  <div className={`flex items-center gap-1 sm:gap-2 text-${status.color}-600`}>
+                    <StatusIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <span className="text-xs sm:text-sm font-bold">{status.text}</span>
                   </div>
                 );
               })()}
             </div>
-            <p className="text-sm text-gray-600">
+            <p className="text-xs sm:text-sm text-gray-600 truncate">
               Due: {selectedInspection.due_date 
                 ? new Date(selectedInspection.due_date).toLocaleDateString() 
-                : 'No deadline set'}
+                : 'No deadline'}
             </p>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <h3 className="text-sm sm:text-base font-semibold text-gray-900">Actions</h3>
+              <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+            </div>
+            <button
+              onClick={() => setShowReport(true)}
+              className="w-full px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 text-sm sm:text-base"
+            >
+              <BarChart3 className="w-4 h-4" />
+              View Report
+            </button>
           </div>
         </div>
 
-        {/* Scan Input */}
+        {/* Scan Input - Mobile Responsive */}
         {!currentItem && (
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <h3 className="font-semibold text-gray-900 mb-4">Scan Product Barcode</h3>
-            <form onSubmit={handleScan} className="flex gap-3">
-              <div className="flex-1 relative">
-                <Camera className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  ref={scanInputRef}
-                  type="text"
-                  value={scanInput}
-                  onChange={(e) => setScanInput(e.target.value)}
-                  placeholder="Scan barcode..."
-                  className="w-full pl-12 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg"
-                />
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
+            <h3 className="text-sm sm:text-base font-semibold text-gray-900 mb-3 sm:mb-4 flex items-center gap-2">
+              <Camera className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+              <span>Scan Product Barcode</span>
+            </h3>
+            <form onSubmit={handleScan} className="space-y-3 sm:space-y-4">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                <div className="flex-1 relative">
+                  <Camera className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
+                  <input
+                    ref={scanInputRef}
+                    type="text"
+                    value={scanInput}
+                    onChange={(e) => setScanInput(e.target.value)}
+                    placeholder="Scan or enter barcode..."
+                    className="w-full pl-10 sm:pl-12 pr-4 py-2.5 sm:py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base sm:text-lg"
+                  />
+                </div>
+                <motion.button
+                  type="submit"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  disabled={loading || !scanInput.trim()}
+                  className="px-6 sm:px-8 py-2.5 sm:py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
+                >
+                  Scan
+                </motion.button>
               </div>
-              <motion.button
-                type="submit"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-semibold"
-              >
-                Scan
-              </motion.button>
+              
+              {/* Camera Button */}
+              <div className="flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => setShowCamera(true)}
+                  className="flex items-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-medium text-sm sm:text-base w-full sm:w-auto justify-center"
+                >
+                  <Video className="w-4 h-4 sm:w-5 sm:h-5" />
+                  Open Camera Scanner
+                </button>
+              </div>
             </form>
           </div>
         )}
 
-        {/* Inspection Form */}
+        {/* Inspection Form - Mobile Responsive */}
         {currentItem && (
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="font-semibold text-gray-900">
-                Inspecting: {currentItem.barcode}
-              </h3>
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 sm:mb-6 gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 sm:gap-3 mb-2">
+                  <Package className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 flex-shrink-0" />
+                  <h3 className="font-semibold text-gray-900 text-base sm:text-lg truncate">
+                    {currentItem.product_name || 'Unknown Product'}
+                  </h3>
+                  {currentItem.product_brand && (
+                    <span className="hidden sm:inline px-2 sm:px-3 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs sm:text-sm flex-shrink-0">
+                      {currentItem.product_brand}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 text-xs sm:text-sm text-gray-600">
+                  <span className="flex items-center gap-1 truncate">
+                    <strong>Size:</strong> {currentItem.product_size || 'N/A'}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <strong>Barcode:</strong> <code className="bg-gray-100 px-2 py-0.5 sm:py-1 rounded text-xs">{currentItem.barcode}</code>
+                  </span>
+                </div>
+              </div>
               <button
                 onClick={resetItemForm}
-                className="text-gray-400 hover:text-gray-600"
+                className="self-end sm:self-auto text-gray-400 hover:text-gray-600"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
-            <div className="space-y-6">
-              {/* Classification */}
+            <div className="space-y-4 sm:space-y-6">
+              {/* Classification - Mobile Responsive */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2 sm:mb-3">
                   Classification *
                 </label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
                   {['GOOD', 'MINOR_DEFECT', 'MAJOR_DEFECT'].map((cls) => (
                     <motion.button
                       key={cls}
@@ -377,7 +753,7 @@ export default function QCInspectionEnhanced() {
                           setIsSellable(false);
                         }
                       }}
-                      className={`p-4 rounded-lg border-2 transition-all ${
+                      className={`p-3 sm:p-4 rounded-lg border-2 transition-all ${
                         classification === cls
                           ? cls === 'GOOD'
                             ? 'border-green-500 bg-green-50 text-green-700'
@@ -387,10 +763,10 @@ export default function QCInspectionEnhanced() {
                           : 'border-gray-300 bg-white text-gray-700'
                       }`}
                     >
-                      {cls === 'GOOD' && <CheckCircle className="w-6 h-6 mx-auto mb-2" />}
-                      {cls === 'MINOR_DEFECT' && <AlertTriangle className="w-6 h-6 mx-auto mb-2" />}
-                      {cls === 'MAJOR_DEFECT' && <XCircle className="w-6 h-6 mx-auto mb-2" />}
-                      <div className="font-semibold">
+                      {cls === 'GOOD' && <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />}
+                      {cls === 'MINOR_DEFECT' && <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />}
+                      {cls === 'MAJOR_DEFECT' && <XCircle className="w-5 h-5 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />}
+                      <div className="font-semibold text-xs sm:text-sm text-center">
                         {cls === 'GOOD' ? 'Good Quality' : cls === 'MINOR_DEFECT' ? 'Minor Defect' : 'Major Defect'}
                       </div>
                     </motion.button>
@@ -398,18 +774,18 @@ export default function QCInspectionEnhanced() {
                 </div>
               </div>
 
-              {/* Defect Details (shown if not GOOD) */}
+              {/* Defect Details (shown if not GOOD) - Mobile Responsive */}
               {classification !== 'GOOD' && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Defect Type
                       </label>
                       <select
                         value={defectType}
                         onChange={(e) => setDefectType(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       >
                         <option value="">Select Type</option>
                         <option value="SCRATCH">Scratch</option>
@@ -423,13 +799,13 @@ export default function QCInspectionEnhanced() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Location
                       </label>
                       <select
                         value={defectLocation}
                         onChange={(e) => setDefectLocation(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       >
                         <option value="">Select Location</option>
                         <option value="TREAD">Tread</option>
@@ -441,13 +817,13 @@ export default function QCInspectionEnhanced() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Severity
                       </label>
                       <select
                         value={defectSeverity}
                         onChange={(e) => setDefectSeverity(e.target.value)}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       >
                         <option value="">Select Severity</option>
                         <option value="COSMETIC">Cosmetic (Minor)</option>
@@ -458,7 +834,7 @@ export default function QCInspectionEnhanced() {
 
                     {classification === 'MINOR_DEFECT' && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                           Discount %
                         </label>
                         <input
@@ -468,7 +844,7 @@ export default function QCInspectionEnhanced() {
                           step="5"
                           value={discountPercentage}
                           onChange={(e) => setDiscountPercentage(e.target.value)}
-                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                           placeholder="10"
                         />
                       </div>
@@ -476,24 +852,24 @@ export default function QCInspectionEnhanced() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                       Defect Description
                     </label>
                     <textarea
                       value={defectDescription}
                       onChange={(e) => setDefectDescription(e.target.value)}
                       rows={3}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       placeholder="Describe the defect in detail..."
                     />
                   </div>
 
-                  {/* Photo Upload */}
+                  {/* Photo Upload - Mobile Responsive */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                       Defect Photos
                     </label>
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -507,29 +883,29 @@ export default function QCInspectionEnhanced() {
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
+                        className="w-full sm:w-auto px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 text-sm sm:text-base"
                       >
                         <Upload className="w-4 h-4" />
                         Upload Photos
                       </motion.button>
-                      <span className="text-sm text-gray-600">
+                      <span className="text-xs sm:text-sm text-gray-600 text-center sm:text-left">
                         {photos.length} photo(s) uploaded
                       </span>
                     </div>
 
                     {photos.length > 0 && (
-                      <div className="mt-4 grid grid-cols-4 gap-3">
+                      <div className="mt-3 sm:mt-4 grid grid-cols-3 sm:grid-cols-4 gap-2 sm:gap-3">
                         {photos.map((photo, index) => (
                           <div key={index} className="relative group">
                             <img
                               src={photo.preview}
                               alt={`Defect ${index + 1}`}
-                              className="w-full h-24 object-cover rounded-lg border border-gray-300"
+                              className="w-full h-20 sm:h-24 object-cover rounded-lg border border-gray-300"
                             />
                             <button
                               type="button"
                               onClick={() => removePhoto(index)}
-                              className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="absolute top-0.5 right-0.5 sm:top-1 sm:right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -541,26 +917,26 @@ export default function QCInspectionEnhanced() {
                 </>
               )}
 
-              {/* Quality Notes */}
+              {/* Quality Notes - Mobile Responsive */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                   Quality Notes
                 </label>
                 <textarea
                   value={qualityNotes}
                   onChange={(e) => setQualityNotes(e.target.value)}
                   rows={2}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                   placeholder="Additional notes..."
                 />
               </div>
 
-              {/* Actions */}
-              <div className="flex justify-end gap-3">
+              {/* Actions - Mobile Responsive */}
+              <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={resetItemForm}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="w-full sm:w-auto px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm sm:text-base"
                 >
                   Cancel
                 </button>
@@ -570,7 +946,7 @@ export default function QCInspectionEnhanced() {
                   whileTap={{ scale: 0.98 }}
                   onClick={recordInspectionItem}
                   disabled={loading}
-                  className="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-semibold disabled:opacity-50 flex items-center gap-2"
+                  className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-semibold disabled:opacity-50 flex items-center justify-center gap-2 text-sm sm:text-base"
                 >
                   <CheckCircle className="w-4 h-4" />
                   Record Inspection
@@ -580,36 +956,95 @@ export default function QCInspectionEnhanced() {
           </div>
         )}
 
-        {/* Complete Button */}
+        {/* Complete Button - Mobile Responsive */}
         {selectedInspection.items_inspected >= selectedInspection.total_items && (
-          <div className="flex justify-end">
+          <div className="flex justify-end px-2 sm:px-0">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={completeInspection}
               disabled={loading}
-              className="px-8 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 font-semibold disabled:opacity-50 flex items-center gap-2"
+              className="w-full sm:w-auto px-6 sm:px-8 py-2.5 sm:py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 font-semibold disabled:opacity-50 flex items-center justify-center gap-2 text-sm sm:text-base"
             >
-              <CheckCircle className="w-5 h-5" />
+              <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
               Complete QC Inspection
             </motion.button>
           </div>
         )}
+
+        {/* Camera Scanner Modal - Mobile Responsive */}
+        <AnimatePresence>
+          {showCamera && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-2 sm:p-4"
+              onClick={() => setShowCamera(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white rounded-xl sm:rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden max-h-[95vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-4 sm:p-6 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 text-white sticky top-0 z-10">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+                    <Video className="w-5 h-5 sm:w-6 sm:h-6 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <h3 className="text-lg sm:text-xl font-bold truncate">Barcode Scanner</h3>
+                      <p className="text-xs sm:text-sm text-blue-100 truncate">Position code in frame</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowCamera(false)}
+                    className="p-1.5 sm:p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors flex-shrink-0 ml-2"
+                  >
+                    <X className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </button>
+                </div>
+
+                <div className="p-3 sm:p-6">
+                  <BarcodeScanner
+                    onScan={handleCameraScan}
+                    onError={(error) => {
+                      console.error('Scanner error:', error);
+                      setAlert({ type: 'error', message: 'Camera error. Please check permissions.' });
+                      setShowCamera(false);
+                    }}
+                  />
+                </div>
+
+                <div className="p-4 sm:p-6 bg-gray-50 border-t border-gray-200">
+                  <div className="flex items-start gap-2 sm:gap-3 text-xs sm:text-sm text-gray-600">
+                    <Info className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p><strong>Tip:</strong> Hold steady with good lighting</p>
+                      <p>• Supports QR codes and barcodes</p>
+                      <p>• Auto-detects codes in frame</p>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
 
   // Inspections List View
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <ClipboardCheck className="w-6 h-6 text-blue-600" />
-            QC Inspection (15-Day Deadline)
+    <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
+      {/* Header - Mobile Responsive */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <ClipboardCheck className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 flex-shrink-0" />
+            <span className="truncate">QC Inspection</span>
           </h2>
-          <p className="text-gray-600 mt-1">Select an inspection to start quality control process</p>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">Select inspection to start</p>
         </div>
       </div>
 
@@ -620,7 +1055,7 @@ export default function QCInspectionEnhanced() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className={`p-4 rounded-lg ${
+            className={`p-3 sm:p-4 rounded-lg text-sm sm:text-base ${
               alert.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
             }`}
           >
@@ -629,31 +1064,31 @@ export default function QCInspectionEnhanced() {
         )}
       </AnimatePresence>
 
-      {/* Search */}
-      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4">
+      {/* Search - Mobile Responsive */}
+      <div className="bg-white rounded-xl shadow-md border border-gray-200 p-3 sm:p-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search inspections..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-9 sm:pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
           />
         </div>
       </div>
 
-      {/* Inspections List */}
-      <div className="grid gap-4">
+      {/* Inspections List - Mobile Responsive */}
+      <div className="grid gap-3 sm:gap-4">
         {loading && filteredInspections.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4">Loading inspections...</p>
+            <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-sm sm:text-base">Loading inspections...</p>
           </div>
         ) : filteredInspections.length === 0 ? (
           <div className="text-center py-12 text-gray-500">
-            <ClipboardCheck className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p>No pending QC inspections</p>
+            <ClipboardCheck className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-sm sm:text-base">No pending QC inspections</p>
           </div>
         ) : (
           filteredInspections.map((inspection) => {
@@ -664,39 +1099,46 @@ export default function QCInspectionEnhanced() {
               <motion.div
                 key={inspection.id}
                 whileHover={{ scale: 1.01 }}
-                className={`bg-white rounded-xl shadow-md border-2 p-6 cursor-pointer ${
+                className={`bg-white rounded-xl shadow-md border-2 p-4 sm:p-6 cursor-pointer ${
                   inspection.is_overdue ? 'border-red-300' : 'border-gray-200'
                 }`}
                 onClick={() => startInspection(inspection)}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-2 sm:mb-3">
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
                         {inspection.inspection_number}
                       </h3>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium bg-${deadlineStatus.color}-100 text-${deadlineStatus.color}-700 flex items-center gap-1`}>
+                      <span className={`px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs font-medium bg-${deadlineStatus.color}-100 text-${deadlineStatus.color}-700 flex items-center gap-1 flex-shrink-0`}>
                         <DeadlineIcon className="w-3 h-3" />
-                        {deadlineStatus.text}
+                        <span className="hidden sm:inline">{deadlineStatus.text}</span>
+                        <span className="sm:hidden">{deadlineStatus.text.split(' ')[0]}</span>
                       </span>
                     </div>
                     
-                    <div className="grid grid-cols-3 gap-4 text-sm mb-3">
-                      <div>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-xs sm:text-sm mb-2 sm:mb-3">
+                      <div className="truncate">
                         <span className="text-gray-600">Shipment:</span>
-                        <span className="ml-2 font-medium text-gray-900">
+                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
                           {inspection.shipment_number}
                         </span>
                       </div>
-                      <div>
+                      <div className="truncate">
+                        <span className="text-gray-600">Items:</span>
+                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
+                          {inspection.total_items}
+                        </span>
+                      </div>
+                      <div className="truncate">
                         <span className="text-gray-600">Progress:</span>
-                        <span className="ml-2 font-medium text-gray-900">
+                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
                           {inspection.items_inspected} / {inspection.total_items}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-gray-600">Due Date:</span>
-                        <span className="ml-2 font-medium text-gray-900">
+                      <div className="truncate">
+                        <span className="text-gray-600">Due:</span>
+                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
                           {inspection.due_date 
                             ? new Date(inspection.due_date).toLocaleDateString() 
                             : 'N/A'}
@@ -705,15 +1147,15 @@ export default function QCInspectionEnhanced() {
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-gray-200 rounded-full h-1.5 sm:h-2">
                       <div
                         style={{ width: `${inspection.inspection_progress || 0}%` }}
-                        className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2 rounded-full"
+                        className="bg-gradient-to-r from-blue-500 to-indigo-600 h-1.5 sm:h-2 rounded-full"
                       />
                     </div>
                   </div>
 
-                  <ChevronRight className="w-6 h-6 text-gray-400 ml-4" />
+                  <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400 ml-2 flex-shrink-0" />
                 </div>
               </motion.div>
             );

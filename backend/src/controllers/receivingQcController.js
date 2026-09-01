@@ -17,6 +17,14 @@ export const registerExpectedItems = async (req, res) => {
       });
     }
 
+    // First, delete any existing expected items for this shipment to avoid duplicates
+    await supabase
+      .from('shipment_expected_items')
+      .delete()
+      .eq('shipment_id', shipment_id);
+
+    console.log(`🗑️ Deleted existing expected items for shipment ${shipment_id}`);
+
     // Insert expected items
     const { data, error } = await supabase
       .from('shipment_expected_items')
@@ -37,6 +45,8 @@ export const registerExpectedItems = async (req, res) => {
       `);
 
     if (error) throw error;
+
+    console.log(`✅ Registered ${data.length} expected items for shipment ${shipment_id}`);
 
     res.status(201).json({
       success: true,
@@ -721,12 +731,12 @@ export const getQcInspection = async (req, res) => {
   try {
     const { inspection_id } = req.params;
 
-    const { data, error } = await supabase
+    // Get inspection without joining users (inspector_id references auth.users which isn't exposed)
+    const { data: inspection, error } = await supabase
       .from('qc_inspections')
       .select(`
         *,
         shipment:shipments(*),
-        inspector:users!inspector_id(id, email, full_name),
         items:qc_inspection_items(
           *,
           product:products(id, brand, model, dimensions, sku)
@@ -737,7 +747,20 @@ export const getQcInspection = async (req, res) => {
 
     if (error) throw error;
 
-    res.json({ success: true, data });
+    // If inspector_id exists, try to get user info separately
+    if (inspection && inspection.inspector_id) {
+      const { data: inspector } = await supabase
+        .from('users')
+        .select('id, email, full_name')
+        .eq('id', inspection.inspector_id)
+        .single();
+      
+      if (inspector) {
+        inspection.inspector = inspector;
+      }
+    }
+
+    res.json({ success: true, data: inspection });
   } catch (error) {
     console.error('Error fetching QC inspection:', error);
     res.status(500).json({ error: error.message });

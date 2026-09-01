@@ -199,10 +199,29 @@ export const startReceiving = async (req, res) => {
     const { id } = req.params;
     const userId = req.user?.id;
 
+    // First, check current shipment status
+    const { data: currentShipment, error: fetchError } = await supabase
+      .from('shipments')
+      .select('id, status, shipment_number')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    // If already inspecting, just return success without updating
+    if (currentShipment.status === 'INSPECTING') {
+      return res.json({
+        success: true,
+        shipment: currentShipment,
+        message: 'Shipment is already being inspected'
+      });
+    }
+
+    // Update status to INSPECTING
     const { data, error } = await supabase
       .from('shipments')
       .update({
-        status: 'INSPECTING',  // Use INSPECTING status (allowed by constraint)
+        status: 'INSPECTING',
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
@@ -211,18 +230,29 @@ export const startReceiving = async (req, res) => {
 
     if (error) throw error;
 
-    // Create warehouse task
-    await supabase
+    // Create warehouse task only if not already exists
+    const { data: existingTask } = await supabase
       .from('warehouse_tasks')
-      .insert({
-        task_type: 'RECEIVING',
-        task_number: `RCV-${Date.now()}`,
-        shipment_id: id,
-        assigned_to: userId,
-        status: 'IN_PROGRESS',
-        started_at: new Date().toISOString(),
-        created_by: userId
-      });
+      .select('id')
+      .eq('shipment_id', id)
+      .eq('task_type', 'RECEIVING')
+      .eq('assigned_to', userId)
+      .eq('status', 'IN_PROGRESS')
+      .maybeSingle();
+
+    if (!existingTask) {
+      await supabase
+        .from('warehouse_tasks')
+        .insert({
+          task_type: 'RECEIVING',
+          task_number: `RCV-${Date.now()}`,
+          shipment_id: id,
+          assigned_to: userId,
+          status: 'IN_PROGRESS',
+          started_at: new Date().toISOString(),
+          created_by: userId
+        });
+    }
 
     res.json({
       success: true,

@@ -24,16 +24,26 @@ export function showToast(messageOrOptions, type = 'info', duration = 5000) {
     options = {
       message: messageOrOptions,
       type: type,
-      duration: duration,
+      duration: typeof duration === 'number' ? duration : 5000,
       position: 'top-right'
     };
-  } else {
+  } else if (messageOrOptions && typeof messageOrOptions === 'object') {
+    // Ensure message is always a string, never an object
+    const messageValue = messageOrOptions.message;
     options = {
       type: messageOrOptions.type || 'info',
-      message: messageOrOptions.message,
+      message: typeof messageValue === 'string' ? messageValue : String(messageValue || ''),
       title: messageOrOptions.title,
-      duration: messageOrOptions.duration || 5000,
+      duration: typeof messageOrOptions.duration === 'number' ? messageOrOptions.duration : 5000,
       position: messageOrOptions.position || 'top-right'
+    };
+  } else {
+    // Fallback for invalid input
+    options = {
+      type: 'info',
+      message: String(messageOrOptions || ''),
+      duration: 5000,
+      position: 'top-right'
     };
   }
   

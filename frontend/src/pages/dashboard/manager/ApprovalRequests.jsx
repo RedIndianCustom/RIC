@@ -24,22 +24,43 @@ export default function ApprovalRequests() {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
 
   useEffect(() => {
     loadApprovalRequests();
-  }, []);
+  }, [statusFilter]);
 
   const loadApprovalRequests = async () => {
     try {
       setLoading(true);
       setError('');
 
-      // In production, this would call: await api.get('/approvals')
-      // For now, showing empty state since this feature isn't built yet
-      setRequests([]);
+      // Load receiving reports pending approval
+      const { data } = await api.get('/receiving/pending-approvals');
+      
+      console.log('📥 Received response:', data);
+      
+      if (data.success) {
+        // Transform to match UI format
+        const transformed = (data.data || []).map(report => ({
+          id: report.report_id,
+          type: 'receiving_report',
+          title: `Receiving Report ${report.report_number}`,
+          description: `Shipment ${report.shipment_number} - ${report.total_scanned} items received with ${Math.abs(report.total_discrepancy)} ${report.total_discrepancy === 0 ? 'no discrepancies' : report.total_discrepancy > 0 ? 'short' : 'over'}`,
+          requestedBy: report.submitted_by_name,
+          createdAt: new Date(report.submitted_at).toLocaleString(),
+          status: 'pending',
+          details: report
+        }));
+        
+        setRequests(transformed);
+        console.log('✅ Loaded', transformed.length, 'pending receiving reports');
+      }
 
     } catch (err) {
-      console.warn('Approvals API not available:', err);
+      console.error('❌ Error loading approval requests:', err);
+      setError('Failed to load approval requests');
       setRequests([]);
     } finally {
       setLoading(false);
@@ -49,28 +70,62 @@ export default function ApprovalRequests() {
   const handleApprove = async (requestId) => {
     try {
       setError('');
-      // await api.post(`/approvals/${requestId}/approve`);
+      setLoading(true);
       
-      setSuccess('Request approved successfully!');
-      await loadApprovalRequests();
-      setIsDetailModalOpen(false);
-      setTimeout(() => setSuccess(''), 3000);
+      console.log('📝 Approving report:', requestId);
+      
+      // Call the actual backend API
+      const { data } = await api.post(`/receiving/approve/${requestId}`, {
+        decision: 'APPROVED',
+        decision_notes: 'Approved by manager'
+      });
+      
+      console.log('✅ Approval response:', data);
+      
+      if (data.success) {
+        setSuccess('Request approved successfully! QC inspection has been created.');
+        await loadApprovalRequests();
+        setIsDetailModalOpen(false);
+        setTimeout(() => setSuccess(''), 5000);
+      } else {
+        setError(data.error || 'Failed to approve request');
+      }
     } catch (err) {
+      console.error('❌ Approval error:', err);
       setError(err.message || 'Failed to approve request');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleReject = async (requestId, reason) => {
     try {
       setError('');
-      // await api.post(`/approvals/${requestId}/reject`, { reason });
+      setLoading(true);
       
-      setSuccess('Request rejected');
-      await loadApprovalRequests();
-      setIsDetailModalOpen(false);
-      setTimeout(() => setSuccess(''), 3000);
+      console.log('❌ Rejecting report:', requestId);
+      
+      // Call the actual backend API
+      const { data } = await api.post(`/receiving/approve/${requestId}`, {
+        decision: 'REJECTED',
+        decision_notes: reason || 'Rejected by manager'
+      });
+      
+      console.log('✅ Rejection response:', data);
+      
+      if (data.success) {
+        setSuccess('Request rejected. Warehouse staff has been notified.');
+        await loadApprovalRequests();
+        setIsDetailModalOpen(false);
+        setTimeout(() => setSuccess(''), 5000);
+      } else {
+        setError(data.error || 'Failed to reject request');
+      }
     } catch (err) {
+      console.error('❌ Rejection error:', err);
       setError(err.message || 'Failed to reject request');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -259,7 +314,11 @@ export default function ApprovalRequests() {
       {/* Detail Modal */}
       <Modal
         isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
+        onClose={() => {
+          setIsDetailModalOpen(false);
+          setShowRejectDialog(false);
+          setRejectionReason('');
+        }}
         title="Request Details"
       >
         {selectedRequest && (
@@ -280,22 +339,116 @@ export default function ApprovalRequests() {
               </div>
             </div>
 
+            {/* Size Breakdown */}
+            {selectedRequest.details?.size_breakdown && (
+              <div className="mt-4">
+                <h4 className="text-sm font-semibold text-slate-900 mb-2">Size Breakdown:</h4>
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium text-slate-700">Size</th>
+                        <th className="px-3 py-2 text-right font-medium text-slate-700">Expected</th>
+                        <th className="px-3 py-2 text-right font-medium text-slate-700">Scanned</th>
+                        <th className="px-3 py-2 text-right font-medium text-slate-700">Difference</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {selectedRequest.details.size_breakdown.map((item, idx) => (
+                        <tr key={idx} className={item.discrepancy !== 0 ? 'bg-amber-50' : ''}>
+                          <td className="px-3 py-2 font-medium">{item.size}</td>
+                          <td className="px-3 py-2 text-right">{item.expected}</td>
+                          <td className="px-3 py-2 text-right">{item.scanned}</td>
+                          <td className={`px-3 py-2 text-right font-medium ${
+                            item.discrepancy > 0 ? 'text-red-600' : 
+                            item.discrepancy < 0 ? 'text-green-600' : 
+                            'text-slate-600'
+                          }`}>
+                            {item.discrepancy > 0 ? `-${item.discrepancy}` : 
+                             item.discrepancy < 0 ? `+${Math.abs(item.discrepancy)}` : 
+                             '0'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            {selectedRequest.details?.notes && (
+              <div className="mt-4">
+                <h4 className="text-sm font-semibold text-slate-900 mb-1">Notes:</h4>
+                <p className="text-sm text-slate-600 bg-slate-50 p-3 rounded">{selectedRequest.details.notes}</p>
+              </div>
+            )}
+
+            {/* Rejection Reason Input */}
+            {showRejectDialog && (
+              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Rejection Reason (required):
+                </label>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Please provide a reason for rejection..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                />
+              </div>
+            )}
+
             {selectedRequest.status === 'pending' && (
               <div className="flex gap-3 pt-4">
-                <Button
-                  onClick={() => handleReject(selectedRequest.id, 'Rejected by manager')}
-                  className="flex-1 bg-red-600 text-white hover:bg-red-700"
-                >
-                  <XCircle className="w-4 h-4" />
-                  Reject
-                </Button>
-                <Button
-                  onClick={() => handleApprove(selectedRequest.id)}
-                  className="flex-1 bg-green-600 text-white hover:bg-green-700"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  Approve
-                </Button>
+                {!showRejectDialog ? (
+                  <>
+                    <Button
+                      onClick={() => setShowRejectDialog(true)}
+                      className="flex-1 bg-red-600 text-white hover:bg-red-700"
+                      disabled={loading}
+                    >
+                      <XCircle className="w-4 h-4" />
+                      Reject
+                    </Button>
+                    <Button
+                      onClick={() => handleApprove(selectedRequest.id)}
+                      className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                      disabled={loading}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      {loading ? 'Processing...' : 'Approve'}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      onClick={() => {
+                        setShowRejectDialog(false);
+                        setRejectionReason('');
+                      }}
+                      className="flex-1 bg-slate-200 text-slate-700 hover:bg-slate-300"
+                      disabled={loading}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        if (!rejectionReason.trim()) {
+                          setError('Please provide a rejection reason');
+                          return;
+                        }
+                        handleReject(selectedRequest.id, rejectionReason);
+                      }}
+                      className="flex-1 bg-red-600 text-white hover:bg-red-700"
+                      disabled={loading || !rejectionReason.trim()}
+                    >
+                      <XCircle className="w-4 h-4" />
+                      {loading ? 'Processing...' : 'Confirm Rejection'}
+                    </Button>
+                  </>
+                )}
               </div>
             )}
           </div>
