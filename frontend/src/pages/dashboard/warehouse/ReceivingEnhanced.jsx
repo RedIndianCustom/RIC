@@ -935,6 +935,55 @@ export default function ReceivingEnhanced() {
         </select>
       </div>
 
+      {/* Summary Cards - Always Visible */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-white rounded-xl shadow-md border border-slate-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-600">Total Shipments</p>
+              <p className="text-2xl font-bold text-slate-900">{shipments.length}</p>
+            </div>
+            <Package className="w-8 h-8 text-slate-400" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md border border-indigo-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-600">In Transit</p>
+              <p className="text-2xl font-bold text-indigo-600">
+                {shipments.filter(s => s.status === 'IN_TRANSIT').length}
+              </p>
+            </div>
+            <Truck className="w-8 h-8 text-indigo-400" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md border border-blue-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-600">Inspecting</p>
+              <p className="text-2xl font-bold text-blue-600">
+                {shipments.filter(s => s.status === 'INSPECTING').length}
+              </p>
+            </div>
+            <ScanBarcode className="w-8 h-8 text-blue-400" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md border border-green-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-600">Completed</p>
+              <p className="text-2xl font-bold text-green-600">
+                {shipments.filter(s => s.status === 'RECEIVED').length}
+              </p>
+            </div>
+            <CheckCircle className="w-8 h-8 text-green-400" />
+          </div>
+        </div>
+      </div>
+
       {/* Shipments List */}
       {filteredShipments.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-xl border border-slate-200">

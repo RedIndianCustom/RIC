@@ -433,15 +433,79 @@ export const recordInspectionItem = async (req, res) => {
     } = req.body;
     const user_id = req.user.id;
 
+    console.log(`🔍 Recording inspection for barcode: ${barcode} in inspection: ${qc_inspection_id}`);
+
+    // Check if this barcode has already been inspected in this inspection
+    const { data: existingItem, error: checkError } = await supabase
+      .from('qc_inspection_items')
+      .select('id, barcode, classification, created_at')
+      .eq('qc_inspection_id', qc_inspection_id)
+      .eq('barcode', barcode)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error('❌ Error checking for duplicate:', checkError);
+      // Continue anyway - the unique constraint in DB will catch it
+    }
+
+    if (existingItem) {
+      console.log(`⚠️ Duplicate detected: Barcode ${barcode} already inspected at ${existingItem.created_at}`);
+      return res.status(409).json({
+        success: false,
+        error: `This barcode (${barcode}) has already been inspected in this QC inspection.`,
+        duplicate: true,
+        existing_item: {
+          id: existingItem.id,
+          barcode: existingItem.barcode,
+          classification: existingItem.classification,
+          inspected_at: existingItem.created_at
+        }
+      });
+    }
+
+    // Fetch barcode details to get inventory_unit_id and batch_id if not provided
+    let finalInventoryUnitId = inventory_unit_id;
+    let finalBatchId = batch_id;
+    let finalProductId = product_id;
+
+    if (!finalInventoryUnitId || !finalBatchId) {
+      console.log(`📦 Fetching barcode details for: ${barcode}`);
+      const { data: barcodeData, error: barcodeError } = await supabase
+        .from('barcodes')
+        .select(`
+          id,
+          product_id,
+          batch_id,
+          inventory_unit_id
+        `)
+        .eq('barcode_value', barcode)
+        .maybeSingle();
+
+      if (barcodeError) {
+        console.error('❌ Error fetching barcode:', barcodeError);
+      }
+
+      if (barcodeData) {
+        finalInventoryUnitId = finalInventoryUnitId || barcodeData.inventory_unit_id;
+        finalBatchId = finalBatchId || barcodeData.batch_id;
+        finalProductId = finalProductId || barcodeData.product_id;
+        console.log(`✅ Found barcode data: inventory_unit=${finalInventoryUnitId}, batch=${finalBatchId}, product=${finalProductId}`);
+      } else {
+        console.warn(`⚠️ Barcode ${barcode} not found in barcodes table`);
+      }
+    }
+
+    console.log(`📝 Inserting inspection record...`);
+
     const { data, error } = await supabase
       .from('qc_inspection_items')
       .insert({
         qc_inspection_id,
-        inventory_unit_id,
-        product_id,
+        inventory_unit_id: finalInventoryUnitId,
+        product_id: finalProductId,
         barcode,
         product_size,
-        batch_id,
+        batch_id: finalBatchId,
         classification,
         has_defect: classification !== 'GOOD',
         defect_type,
@@ -460,7 +524,22 @@ export const recordInspectionItem = async (req, res) => {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ Error inserting inspection item:', error);
+      
+      // Check if it's a duplicate key violation
+      if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('unique')) {
+        return res.status(409).json({
+          success: false,
+          error: `This barcode (${barcode}) has already been inspected in this QC inspection.`,
+          duplicate: true
+        });
+      }
+      
+      throw error;
+    }
+
+    console.log(`✅ Inspection item recorded successfully: ${data.id}`);
 
     // Update inspection progress
     await updateInspectionProgress(qc_inspection_id);
@@ -471,8 +550,11 @@ export const recordInspectionItem = async (req, res) => {
       data
     });
   } catch (error) {
-    console.error('Error recording inspection item:', error);
-    res.status(500).json({ error: error.message });
+    console.error('❌ Error recording inspection item:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message || 'Failed to record inspection item'
+    });
   }
 };
 
@@ -781,6 +863,88 @@ export const getPendingQcInspections = async (req, res) => {
   } catch (error) {
     console.error('Error fetching pending QC inspections:', error);
     res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Get completed QC inspections awaiting manager approval
+ * Used by manager dashboard
+ */
+export const getCompletedQcInspections = async (req, res) => {
+  try {
+    console.log('📋 Fetching completed QC inspections awaiting approval...');
+    
+    // Try to use the view first
+    const { data: viewData, error: viewError } = await supabase
+      .from('qc_inspections_awaiting_approval')
+      .select('*')
+      .order('inspection_end_date', { ascending: true });
+
+    if (!viewError && viewData) {
+      console.log(`✅ Found ${viewData.length} inspections awaiting approval (from view)`);
+      return res.json({ success: true, data: viewData });
+    }
+
+    // Fallback: query qc_inspections table directly
+    console.log('⚠️  View not available, querying table directly...');
+    const { data, error } = await supabase
+      .from('qc_inspections')
+      .select(`
+        id,
+        inspection_number,
+        shipment_id,
+        status,
+        total_items,
+        items_inspected,
+        good_quality_count,
+        minor_defect_count,
+        major_defect_count,
+        good_quality_percentage,
+        minor_defect_percentage,
+        major_defect_percentage,
+        inspector_id,
+        inspector_notes,
+        overall_assessment,
+        recommendations,
+        inspection_start_date,
+        inspection_end_date,
+        manager_decision,
+        manager_notes,
+        manager_reviewed_by,
+        manager_reviewed_at,
+        created_at,
+        shipments!qc_inspections_shipment_id_fkey (
+          id,
+          shipment_number,
+          container_number
+        )
+      `)
+      .eq('status', 'COMPLETED')
+      .or('manager_decision.is.null,manager_decision.eq.PENDING')
+      .order('inspection_end_date', { ascending: true });
+
+    if (error) {
+      console.error('❌ Error fetching completed inspections:', error);
+      throw error;
+    }
+
+    console.log(`✅ Found ${data?.length || 0} inspections awaiting approval (from table)`);
+
+    // Flatten shipment data
+    const formattedData = data.map(inspection => ({
+      ...inspection,
+      shipment_number: inspection.shipments?.shipment_number,
+      container_number: inspection.shipments?.container_number,
+      shipments: undefined // Remove nested object
+    }));
+
+    res.json({ success: true, data: formattedData });
+  } catch (error) {
+    console.error('❌ Error fetching completed QC inspections:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message || 'Failed to fetch completed inspections'
+    });
   }
 };
 

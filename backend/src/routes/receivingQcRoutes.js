@@ -22,6 +22,7 @@ import {
   approveQcInspection,
   getQcInspection,
   getPendingQcInspections,
+  getCompletedQcInspections,
   
   // Defect Inventory
   getDefectInventory,
@@ -66,6 +67,7 @@ router.put('/qc-inspection/:inspection_id/complete', completeQcInspection);
 router.put('/qc-inspection/:inspection_id/approve', approveQcInspection);
 router.get('/qc-inspection/:inspection_id', getQcInspection);
 router.get('/qc-inspection/pending/all', getPendingQcInspections);
+router.get('/qc-inspection/completed/all', getCompletedQcInspections); // New endpoint for managers
 
 // ============================================================================
 // DEFECT INVENTORY

@@ -194,7 +194,20 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
   const playScanSound = () => {
     if (!soundEnabled) return;
     try {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      // Create AudioContext only if it doesn't exist
+      if (!window.scannerAudioContext) {
+        window.scannerAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      const audioContext = window.scannerAudioContext;
+      
+      // Resume context if suspended (required by some browsers)
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().catch(err => {
+          console.warn('Could not resume audio context:', err);
+        });
+      }
+      
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
       
@@ -206,8 +219,15 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
       
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + 0.1);
+      
+      // Clean up after sound finishes
+      setTimeout(() => {
+        oscillator.disconnect();
+        gainNode.disconnect();
+      }, 150);
     } catch (err) {
-      console.error('Failed to play sound:', err);
+      // Silently fail - audio feedback is not critical
+      console.warn('Scan sound not available:', err.message);
     }
   };
 

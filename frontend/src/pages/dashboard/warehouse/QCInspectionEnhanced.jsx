@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ClipboardCheck, Search, Camera, CheckCircle, XCircle, AlertTriangle, 
   X, ChevronRight, Clock, Upload, Image as ImageIcon, Trash2, 
-  FileText, TrendingUp, Calendar, AlertCircle, Package, BarChart3, Info, Video, SwitchCamera
+  FileText, TrendingUp, Calendar, AlertCircle, Package, BarChart3, Info, 
+  Video, SwitchCamera, Timer, Target, Zap, Award, Activity
 } from 'lucide-react';
 import api from '../../../services/api';
 import BarcodeScanner from '../../../components/scanner/BarcodeScanner';
@@ -15,8 +16,20 @@ export default function QCInspectionEnhanced() {
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [inspectedItems, setInspectedItems] = useState([]); // Track all inspected items
-  const [showReport, setShowReport] = useState(false); // Toggle report view
+  const [inspectedItems, setInspectedItems] = useState([]);
+  const [showReport, setShowReport] = useState(false);
+  
+  // Session Statistics - Enhanced
+  const [sessionStats, setSessionStats] = useState({
+    startTime: null,
+    totalScanned: 0,
+    goodCount: 0,
+    minorDefectCount: 0,
+    majorDefectCount: 0,
+    inspectionRate: 0,
+    qualityScore: 100,
+    elapsedTime: 0
+  });
   
   // Inspection form state
   const [classification, setClassification] = useState('GOOD');
@@ -32,9 +45,12 @@ export default function QCInspectionEnhanced() {
   const [scanInput, setScanInput] = useState('');
   const [productInfo, setProductInfo] = useState(null); // Store product details
   const [showCamera, setShowCamera] = useState(false); // Camera modal state
+  const [isProcessing, setIsProcessing] = useState(false); // Prevent duplicate scans
   
   const scanInputRef = useRef(null);
   const fileInputRef = useRef(null);
+  const lastScannedBarcode = useRef(null);
+  const timerInterval = useRef(null); // Timer for session stats
 
   useEffect(() => {
     loadPendingInspections();
@@ -52,6 +68,30 @@ export default function QCInspectionEnhanced() {
       scanInputRef.current.focus();
     }
   }, [currentItem]);
+
+  // Timer for inspection session - Enhanced
+  useEffect(() => {
+    if (selectedInspection && sessionStats.startTime) {
+      timerInterval.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - sessionStats.startTime) / 1000);
+        const rate = sessionStats.totalScanned > 0 
+          ? (sessionStats.totalScanned / (elapsed / 60)).toFixed(1)
+          : 0;
+        
+        setSessionStats(prev => ({
+          ...prev,
+          elapsedTime: elapsed,
+          inspectionRate: rate
+        }));
+      }, 1000);
+
+      return () => {
+        if (timerInterval.current) {
+          clearInterval(timerInterval.current);
+        }
+      };
+    }
+  }, [selectedInspection, sessionStats.startTime, sessionStats.totalScanned]);
 
   const loadPendingInspections = async () => {
     try {
@@ -71,8 +111,23 @@ export default function QCInspectionEnhanced() {
       setLoading(true);
       const { data } = await api.get(`/receiving-qc/qc-inspection/${inspection.id}`);
       setSelectedInspection(data.data);
-      setInspectedItems(data.data.items || []); // Load previously inspected items
-      setShowReport(false); // Start in inspection mode
+      setInspectedItems(data.data.items || []);
+      setShowReport(false);
+      
+      // Initialize session stats with timer
+      setSessionStats({
+        startTime: Date.now(),
+        totalScanned: data.data.items?.length || 0,
+        goodCount: data.data.good_quality_count || 0,
+        minorDefectCount: data.data.minor_defect_count || 0,
+        majorDefectCount: data.data.major_defect_count || 0,
+        inspectionRate: 0,
+        qualityScore: data.data.items?.length > 0 
+          ? ((data.data.good_quality_count || 0) / data.data.items.length * 100).toFixed(1)
+          : 100,
+        elapsedTime: 0
+      });
+      
       resetItemForm();
     } catch (error) {
       console.error('Error loading inspection details:', error);
@@ -95,74 +150,189 @@ export default function QCInspectionEnhanced() {
     setPhotos([]);
     setQualityNotes('');
     setScanInput('');
+    setIsProcessing(false);
+    lastScannedBarcode.current = null; // Clear last scanned barcode
   };
 
   const handleScan = async (e) => {
     e.preventDefault();
     
     if (!scanInput.trim()) return;
+    if (isProcessing) {
+      console.log('Already processing a scan, please wait...');
+      return;
+    }
 
     const barcode = scanInput.trim();
+    
+    // Prevent duplicate scans of the same barcode
+    if (lastScannedBarcode.current === barcode) {
+      console.log('Barcode already scanned, skipping duplicate');
+      setScanInput('');
+      return;
+    }
+    
     await processBarcode(barcode);
   };
 
   const handleCameraScan = async (barcode) => {
     setShowCamera(false);
+    
+    // Prevent duplicate scans
+    if (isProcessing) {
+      console.log('Already processing a scan, please wait...');
+      return;
+    }
+    
+    if (lastScannedBarcode.current === barcode) {
+      console.log('Barcode already scanned, skipping duplicate');
+      return;
+    }
+    
     await processBarcode(barcode);
   };
 
   const processBarcode = async (barcode) => {
+    // Prevent duplicate processing
+    if (isProcessing) {
+      console.log('Already processing, skipping...');
+      return;
+    }
+    
     try {
+      setIsProcessing(true);
       setLoading(true);
+      
+      console.log('Looking up barcode:', barcode);
       
       // Fetch product info from barcode using traceability endpoint
       const { data } = await api.get(`/barcodes/trace/${barcode}`);
       
+      console.log('Barcode trace response:', data);
+      console.log('Traceability object:', data.traceability);
+      
       if (data.success && data.traceability) {
         const trace = data.traceability;
         
-        // Extract product details from traceability data
-        const product = trace.product || {};
-        const batch = trace.batch || {};
+        // IMPORTANT: API returns 'products' (not 'product'), 'batches' (not 'batch'), 'inventory_units' (not 'inventory_unit')
+        const product = trace.products || {};  // Note: plural
+        const batch = trace.batches || {};      // Note: plural
+        const inventoryUnit = trace.inventory_units || {};  // Note: plural and underscore
+        
+        console.log('Product data:', product);
+        console.log('Batch data:', batch);
+        console.log('Inventory unit data:', inventoryUnit);
+        
+        // Build product name from brand + model
+        const brandText = product.brand || '';
+        const modelText = product.model || '';
+        const categoryText = product.category || '';
+        const skuText = product.sku || '';
+        
+        // Try multiple strategies to build a useful product name
+        let productName = 'Unknown Product';
+        if (brandText && modelText) {
+          productName = `${brandText} ${modelText}`.trim();
+        } else if (brandText && categoryText) {
+          productName = `${brandText} ${categoryText}`.trim();
+        } else if (skuText) {
+          productName = skuText;
+        } else if (brandText) {
+          productName = brandText;
+        } else if (modelText) {
+          productName = modelText;
+        } else if (categoryText) {
+          productName = categoryText;
+        }
+        
+        // Get size from product dimensions
+        const productSize = product.dimensions || inventoryUnit.product_size || '';
+        
+        // Get brand
+        const productBrand = product.brand || '';
+        
+        // Get batch_id and inventory_unit_id for backend
+        const batchId = batch.id || null;
+        const inventoryUnitId = inventoryUnit.id || null;
         
         setProductInfo({
           barcode: barcode,
-          product_name: product.product_name || product.model || product.name || 'Unknown Product',
-          product_brand: product.brand || '',
-          product_size: product.dimensions || product.size || '',
-          product_id: product.id || null
+          product_name: productName,
+          product_brand: productBrand,
+          product_size: productSize,
+          product_id: product.id || null,
+          batch_id: batchId,
+          inventory_unit_id: inventoryUnitId
         });
         
         // Set current item for inspection
         setCurrentItem({
           barcode: barcode,
-          product_id: product.id,
-          product_size: product.dimensions || product.size || '',
-          product_name: product.product_name || product.model || product.name || 'Unknown Product',
-          product_brand: product.brand || ''
+          product_id: product.id || null,
+          product_size: productSize,
+          product_name: productName,
+          product_brand: productBrand,
+          batch_id: batchId,
+          inventory_unit_id: inventoryUnitId
         });
         
-        setAlert({ type: 'success', message: `Product loaded: ${product.product_name || product.model || product.name || 'Unknown'}` });
+        // Store last scanned barcode
+        lastScannedBarcode.current = barcode;
+        
+        setAlert({ 
+          type: 'success', 
+          message: `Product loaded: ${productName}${productSize ? ` (${productSize})` : ''}` 
+        });
+        
+        console.log('Product loaded successfully:', {
+          name: productName,
+          brand: productBrand,
+          size: productSize
+        });
       } else {
-        setAlert({ type: 'error', message: 'Barcode not found in system' });
+        // Barcode not found in system
+        console.warn('Barcode not found in traceability system');
+        
+        // Still allow inspection with manual entry
+        setCurrentItem({
+          barcode: barcode,
+          product_id: null,
+          product_size: '',
+          product_name: '',
+          product_brand: ''
+        });
+        
+        lastScannedBarcode.current = barcode;
+        
+        setAlert({ 
+          type: 'warning', 
+          message: 'Barcode not found. Please enter product details manually.' 
+        });
       }
       
     } catch (error) {
       console.error('Error looking up barcode:', error);
+      console.error('Error details:', error.response?.data);
       
       // If lookup fails, still allow inspection with manual entry
       setCurrentItem({
         barcode: barcode,
         product_id: null,
         product_size: '',
-        product_name: 'Unknown Product',
+        product_name: '',
         product_brand: ''
       });
       
-      setAlert({ type: 'warning', message: 'Could not load product details. Please verify manually.' });
+      lastScannedBarcode.current = barcode;
+      
+      setAlert({ 
+        type: 'warning', 
+        message: `Could not load product details: ${error.response?.data?.error || error.message}. Please enter manually.` 
+      });
     } finally {
       setScanInput('');
       setLoading(false);
+      setIsProcessing(false);
     }
   };
 
@@ -197,6 +367,18 @@ export default function QCInspectionEnhanced() {
       return;
     }
 
+    // Check if this barcode has already been inspected locally
+    const alreadyInspected = inspectedItems.some(item => item.barcode === currentItem.barcode);
+    if (alreadyInspected) {
+      setAlert({ 
+        type: 'error', 
+        message: `Barcode ${currentItem.barcode} has already been inspected. Please scan a different item.` 
+      });
+      resetItemForm();
+      setProductInfo(null);
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -208,6 +390,8 @@ export default function QCInspectionEnhanced() {
         barcode: currentItem.barcode,
         product_id: currentItem.product_id,
         product_size: currentItem.product_size,
+        batch_id: currentItem.batch_id,
+        inventory_unit_id: currentItem.inventory_unit_id,
         classification,
         defect_type: classification !== 'GOOD' ? defectType : null,
         defect_location: classification !== 'GOOD' ? defectLocation : null,
@@ -220,7 +404,11 @@ export default function QCInspectionEnhanced() {
         quality_notes: qualityNotes
       };
 
+      console.log('📤 Sending inspection payload:', payload);
+
       const { data } = await api.post('/receiving-qc/qc-inspection/record-item', payload);
+
+      console.log('✅ Inspection recorded:', data);
 
       // Add to inspected items list
       const newItem = {
@@ -234,7 +422,15 @@ export default function QCInspectionEnhanced() {
       
       setInspectedItems(prev => [...prev, newItem]);
 
-      setAlert({ type: 'success', message: `${currentItem.product_name} (${currentItem.product_size}) inspected successfully` });
+      // Update session stats - Enhanced
+      setSessionStats(prev => ({
+        ...prev,
+        totalScanned: prev.totalScanned + 1,
+        goodCount: classification === 'GOOD' ? prev.goodCount + 1 : prev.goodCount,
+        minorDefectCount: classification === 'MINOR_DEFECT' ? prev.minorDefectCount + 1 : prev.minorDefectCount,
+        majorDefectCount: classification === 'MAJOR_DEFECT' ? prev.majorDefectCount + 1 : prev.majorDefectCount,
+        qualityScore: ((prev.goodCount + (classification === 'GOOD' ? 1 : 0)) / (prev.totalScanned + 1) * 100).toFixed(1)
+      }));
       
       // Update local inspection state
       setSelectedInspection(prev => ({
@@ -248,8 +444,22 @@ export default function QCInspectionEnhanced() {
       resetItemForm();
       setProductInfo(null);
     } catch (error) {
-      console.error('Error recording inspection:', error);
-      setAlert({ type: 'error', message: error.response?.data?.error || 'Failed to record inspection' });
+      console.error('❌ Error recording inspection:', error);
+      
+      // Handle duplicate error specifically
+      if (error.response?.status === 409 || error.response?.data?.duplicate) {
+        setAlert({ 
+          type: 'error', 
+          message: error.response?.data?.error || 'This barcode has already been inspected. Please scan a different item.' 
+        });
+        resetItemForm();
+        setProductInfo(null);
+      } else {
+        setAlert({ 
+          type: 'error', 
+          message: error.response?.data?.error || 'Failed to record inspection' 
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -277,6 +487,20 @@ export default function QCInspectionEnhanced() {
       setAlert({ type: 'error', message: error.response?.data?.error || 'Failed to complete inspection' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    } else {
+      return `${secs}s`;
     }
   };
 
@@ -1044,7 +1268,7 @@ export default function QCInspectionEnhanced() {
             <ClipboardCheck className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 flex-shrink-0" />
             <span className="truncate">QC Inspection</span>
           </h2>
-          <p className="text-sm sm:text-base text-gray-600 mt-1">Select inspection to start</p>
+          <p className="text-sm sm:text-base text-gray-600 mt-1">Quality Control Inspection Dashboard</p>
         </div>
       </div>
 
@@ -1056,13 +1280,90 @@ export default function QCInspectionEnhanced() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             className={`p-3 sm:p-4 rounded-lg text-sm sm:text-base ${
-              alert.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'
+              alert.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 
+              alert.type === 'warning' ? 'bg-yellow-50 text-yellow-800 border border-yellow-200' :
+              'bg-red-50 text-red-800 border border-red-200'
             }`}
           >
             {alert.message}
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Stats Overview Cards - Enhanced - Always visible */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <motion.div
+            whileHover={{ y: -4 }}
+            className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl shadow-md border border-blue-200 p-6"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-700">Pending Inspections</p>
+                <p className="text-3xl font-bold text-blue-900 mt-1">
+                  {inspections.filter(i => i.status === 'PENDING').length}
+                </p>
+                <p className="text-xs text-blue-600 mt-1">Ready to inspect</p>
+              </div>
+              <div className="p-3 bg-blue-100 rounded-lg">
+                <ClipboardCheck className="w-8 h-8 text-blue-600" />
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ y: -4 }}
+            className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-xl shadow-md border border-yellow-200 p-6"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-yellow-700">In Progress</p>
+                <p className="text-3xl font-bold text-yellow-900 mt-1">
+                  {inspections.filter(i => i.status === 'IN_PROGRESS').length}
+                </p>
+                <p className="text-xs text-yellow-600 mt-1">Currently inspecting</p>
+              </div>
+              <div className="p-3 bg-yellow-100 rounded-lg">
+                <Activity className="w-8 h-8 text-yellow-600" />
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ y: -4 }}
+            className="bg-gradient-to-br from-red-50 to-rose-50 rounded-xl shadow-md border border-red-200 p-6"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-red-700">Overdue</p>
+                <p className="text-3xl font-bold text-red-900 mt-1">
+                  {inspections.filter(i => i.is_overdue).length}
+                </p>
+                <p className="text-xs text-red-600 mt-1">Requires attention</p>
+              </div>
+              <div className="p-3 bg-red-100 rounded-lg">
+                <AlertCircle className="w-8 h-8 text-red-600" />
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ y: -4 }}
+            className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl shadow-md border border-green-200 p-6"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-700">Total Items</p>
+                <p className="text-3xl font-bold text-green-900 mt-1">
+                  {inspections.reduce((sum, i) => sum + (i.total_items || 0), 0)}
+                </p>
+                <p className="text-xs text-green-600 mt-1">Awaiting inspection</p>
+              </div>
+              <div className="p-3 bg-green-100 rounded-lg">
+                <Package className="w-8 h-8 text-green-600" />
+              </div>
+            </div>
+          </motion.div>
+        </div>
 
       {/* Search - Mobile Responsive */}
       <div className="bg-white rounded-xl shadow-md border border-gray-200 p-3 sm:p-4">
@@ -1094,68 +1395,105 @@ export default function QCInspectionEnhanced() {
           filteredInspections.map((inspection) => {
             const deadlineStatus = getDeadlineStatus(inspection.due_date, inspection.is_overdue);
             const DeadlineIcon = deadlineStatus.icon;
+            const progress = inspection.total_items > 0 
+              ? (inspection.items_inspected / inspection.total_items) * 100 
+              : 0;
 
             return (
               <motion.div
                 key={inspection.id}
-                whileHover={{ scale: 1.01 }}
-                className={`bg-white rounded-xl shadow-md border-2 p-4 sm:p-6 cursor-pointer ${
-                  inspection.is_overdue ? 'border-red-300' : 'border-gray-200'
+                whileHover={{ scale: 1.01, boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }}
+                className={`bg-white rounded-xl shadow-md border-2 p-4 sm:p-6 cursor-pointer transition-all ${
+                  inspection.is_overdue ? 'border-red-300 bg-red-50' : 'border-gray-200'
                 }`}
                 onClick={() => startInspection(inspection)}
               >
-                <div className="flex items-start justify-between gap-2">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-2 mb-4">
                   <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-2 sm:mb-3">
-                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <h3 className="text-lg sm:text-xl font-bold text-gray-900 truncate">
                         {inspection.inspection_number}
                       </h3>
-                      <span className={`px-2 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs font-medium bg-${deadlineStatus.color}-100 text-${deadlineStatus.color}-700 flex items-center gap-1 flex-shrink-0`}>
+                      <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-bold bg-${deadlineStatus.color}-100 text-${deadlineStatus.color}-700 flex items-center gap-1 flex-shrink-0`}>
                         <DeadlineIcon className="w-3 h-3" />
-                        <span className="hidden sm:inline">{deadlineStatus.text}</span>
-                        <span className="sm:hidden">{deadlineStatus.text.split(' ')[0]}</span>
+                        {deadlineStatus.text}
                       </span>
+                      {inspection.status === 'IN_PROGRESS' && (
+                        <span className="px-2 sm:px-3 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">
+                          IN PROGRESS
+                        </span>
+                      )}
                     </div>
                     
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-xs sm:text-sm mb-2 sm:mb-3">
-                      <div className="truncate">
-                        <span className="text-gray-600">Shipment:</span>
-                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
-                          {inspection.shipment_number}
-                        </span>
-                      </div>
-                      <div className="truncate">
-                        <span className="text-gray-600">Items:</span>
-                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
-                          {inspection.total_items}
-                        </span>
-                      </div>
-                      <div className="truncate">
-                        <span className="text-gray-600">Progress:</span>
-                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
-                          {inspection.items_inspected} / {inspection.total_items}
-                        </span>
-                      </div>
-                      <div className="truncate">
-                        <span className="text-gray-600">Due:</span>
-                        <span className="ml-1 sm:ml-2 font-medium text-gray-900">
-                          {inspection.due_date 
-                            ? new Date(inspection.due_date).toLocaleDateString() 
-                            : 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Progress Bar */}
-                    <div className="w-full bg-gray-200 rounded-full h-1.5 sm:h-2">
-                      <div
-                        style={{ width: `${inspection.inspection_progress || 0}%` }}
-                        className="bg-gradient-to-r from-blue-500 to-indigo-600 h-1.5 sm:h-2 rounded-full"
-                      />
-                    </div>
+                    <p className="text-sm text-gray-600">
+                      Shipment: <span className="font-semibold text-gray-900">{inspection.shipment_number}</span>
+                    </p>
                   </div>
 
-                  <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400 ml-2 flex-shrink-0" />
+                  <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400 flex-shrink-0" />
+                </div>
+
+                {/* Stats Grid - Enhanced */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <p className="text-xs text-blue-600 font-medium">Total Items</p>
+                    <p className="text-2xl font-bold text-blue-900">{inspection.total_items}</p>
+                  </div>
+                  
+                  <div className="bg-green-50 rounded-lg p-3">
+                    <p className="text-xs text-green-600 font-medium">Inspected</p>
+                    <p className="text-2xl font-bold text-green-900">{inspection.items_inspected}</p>
+                  </div>
+                  
+                  <div className="bg-purple-50 rounded-lg p-3">
+                    <p className="text-xs text-purple-600 font-medium">Remaining</p>
+                    <p className="text-2xl font-bold text-purple-900">
+                      {inspection.total_items - inspection.items_inspected}
+                    </p>
+                  </div>
+                  
+                  <div className="bg-indigo-50 rounded-lg p-3">
+                    <p className="text-xs text-indigo-600 font-medium">Progress</p>
+                    <p className="text-2xl font-bold text-indigo-900">{Math.round(progress)}%</p>
+                  </div>
+                </div>
+
+                {/* Progress Bar - Enhanced */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">Inspection Progress</span>
+                    <span className="text-sm font-bold text-gray-900">{Math.round(progress)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className={`h-3 rounded-full transition-all duration-500 ${
+                        progress === 100 ? 'bg-green-500' :
+                        progress >= 75 ? 'bg-blue-500' :
+                        progress >= 50 ? 'bg-yellow-500' :
+                        'bg-orange-500'
+                      }`}
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Footer Info */}
+                <div className="pt-4 border-t border-gray-200 flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1 text-gray-600">
+                      <Calendar className="w-4 h-4" />
+                      <span>
+                        Due: {inspection.due_date 
+                          ? new Date(inspection.due_date).toLocaleDateString()
+                          : 'No deadline'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                    {inspection.status === 'IN_PROGRESS' ? 'Continue' : 'Start Inspection'}
+                  </button>
                 </div>
               </motion.div>
             );

@@ -32,13 +32,22 @@ export default function QCApproval() {
   const loadCompletedInspections = async () => {
     try {
       setLoading(true);
-      // Get inspections that are completed but pending manager approval
-      const { data } = await api.get('/receiving-qc/qc-inspection/pending/all');
-      // Filter for completed ones only
-      const completed = data.data?.filter(i => i.status === 'COMPLETED') || [];
-      setInspections(completed);
+      console.log('📋 Fetching completed QC inspections for manager approval...');
+      
+      // Use the new endpoint specifically for completed inspections
+      const { data } = await api.get('/receiving-qc/qc-inspection/completed/all');
+      
+      console.log('✅ Received response:', data);
+      console.log('✅ Inspections count:', data.data?.length || 0);
+      
+      setInspections(data.data || []);
+      
+      if (data.data?.length === 0) {
+        console.log('ℹ️  No completed inspections awaiting approval');
+      }
     } catch (error) {
-      console.error('Error loading inspections:', error);
+      console.error('❌ Error loading inspections:', error);
+      console.error('Error details:', error.response?.data);
       setAlert({ type: 'error', message: 'Failed to load inspections' });
     } finally {
       setLoading(false);
@@ -166,56 +175,54 @@ export default function QCApproval() {
         )}
       </AnimatePresence>
 
-      {/* Summary Cards */}
-      {inspections.length > 0 && (
-        <div className="grid grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Pending Approval</p>
-                <p className="text-2xl font-bold text-gray-900">{inspections.length}</p>
-              </div>
-              <Clock className="w-8 h-8 text-gray-400" />
+      {/* Summary Cards - Always visible */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Pending Approval</p>
+              <p className="text-2xl font-bold text-gray-900">{inspections.length}</p>
             </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-md border border-green-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Good Quality</p>
-                <p className="text-2xl font-bold text-green-600">
-                  {inspections.reduce((sum, i) => sum + (i.good_quality_count || 0), 0)}
-                </p>
-              </div>
-              <CheckCircle className="w-8 h-8 text-green-400" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-md border border-yellow-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Minor Defects</p>
-                <p className="text-2xl font-bold text-yellow-600">
-                  {inspections.reduce((sum, i) => sum + (i.minor_defect_count || 0), 0)}
-                </p>
-              </div>
-              <AlertTriangle className="w-8 h-8 text-yellow-400" />
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-md border border-red-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Major Defects</p>
-                <p className="text-2xl font-bold text-red-600">
-                  {inspections.reduce((sum, i) => sum + (i.major_defect_count || 0), 0)}
-                </p>
-              </div>
-              <XCircle className="w-8 h-8 text-red-400" />
-            </div>
+            <Clock className="w-8 h-8 text-gray-400" />
           </div>
         </div>
-      )}
+
+        <div className="bg-white rounded-xl shadow-md border border-green-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Good Quality</p>
+              <p className="text-2xl font-bold text-green-600">
+                {inspections.reduce((sum, i) => sum + (i.good_quality_count || 0), 0)}
+              </p>
+            </div>
+            <CheckCircle className="w-8 h-8 text-green-400" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md border border-yellow-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Minor Defects</p>
+              <p className="text-2xl font-bold text-yellow-600">
+                {inspections.reduce((sum, i) => sum + (i.minor_defect_count || 0), 0)}
+              </p>
+            </div>
+            <AlertTriangle className="w-8 h-8 text-yellow-400" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md border border-red-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Major Defects</p>
+              <p className="text-2xl font-bold text-red-600">
+                {inspections.reduce((sum, i) => sum + (i.major_defect_count || 0), 0)}
+              </p>
+            </div>
+            <XCircle className="w-8 h-8 text-red-400" />
+          </div>
+        </div>
+      </div>
 
       {/* Inspections List */}
       <div className="space-y-4">
@@ -369,21 +376,52 @@ export default function QCApproval() {
                                   className={`p-4 rounded-lg border-2 border-${color}-200 bg-${color}-50`}
                                 >
                                   <div className="flex items-start justify-between mb-3">
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3 flex-1">
                                       <div className={`p-2 bg-${color}-100 rounded-lg text-${color}-600`}>
                                         {getClassificationIcon(item.classification)}
                                       </div>
-                                      <div>
-                                        <div className="font-medium text-gray-900">
-                                          {item.barcode}
+                                      <div className="flex-1">
+                                        {/* Product Name - Constructed from brand + model */}
+                                        {(item.product?.brand || item.product?.model || item.product_name) && (
+                                          <div className="font-semibold text-gray-900 mb-1">
+                                            {item.product_name || 
+                                             `${item.product?.brand || ''} ${item.product?.model || ''}`.trim() ||
+                                             'Unknown Product'}
+                                          </div>
+                                        )}
+                                        
+                                        {/* Brand, Model, and Size */}
+                                        <div className="flex items-center gap-2 text-sm text-gray-700 mb-1 flex-wrap">
+                                          {item.product?.brand && !item.product_name && (
+                                            <span className="font-medium text-blue-700">
+                                              {item.product.brand}
+                                            </span>
+                                          )}
+                                          {item.product?.model && !item.product_name && (
+                                            <span className="font-medium text-blue-700">
+                                              {item.product.model}
+                                            </span>
+                                          )}
+                                          {(item.product_size || item.product?.dimensions) && (
+                                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded font-medium text-xs">
+                                              Size: {item.product_size || item.product?.dimensions}
+                                            </span>
+                                          )}
+                                          {item.product?.sku && (
+                                            <span className="text-xs text-gray-500">
+                                              SKU: {item.product.sku}
+                                            </span>
+                                          )}
                                         </div>
-                                        <div className="text-sm text-gray-600">
-                                          Size: {item.product_size}
+                                        
+                                        {/* Barcode */}
+                                        <div className="text-xs text-gray-500 font-mono">
+                                          Barcode: {item.barcode}
                                         </div>
                                       </div>
                                     </div>
                                     
-                                    <span className={`px-3 py-1 rounded-full text-xs font-medium bg-${color}-200 text-${color}-800`}>
+                                    <span className={`px-3 py-1 rounded-full text-xs font-medium bg-${color}-200 text-${color}-800 whitespace-nowrap`}>
                                       {item.classification.replace('_', ' ')}
                                     </span>
                                   </div>

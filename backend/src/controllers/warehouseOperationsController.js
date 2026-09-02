@@ -81,9 +81,10 @@ export const getIncomingShipments = async (req, res) => {
         id,
         shipment_number,
         status,
-        expected_date,
+        expected_arrival_date,
         actual_date,
         received_date,
+        inspection_date,
         supplier_id,
         expected_quantity,
         actual_quantity,
@@ -94,7 +95,7 @@ export const getIncomingShipments = async (req, res) => {
         created_at,
         supplier:suppliers(id, name)
       `)
-      .order('expected_date', { ascending: true })
+      .order('expected_arrival_date', { ascending: true, nullsFirst: false })
       .limit(limit);
 
     if (status !== 'all') {
@@ -107,9 +108,12 @@ export const getIncomingShipments = async (req, res) => {
 
     if (error) throw error;
 
+    // Shipments now have the correct field names
+    const transformedShipments = shipments || [];
+
     res.json({
       success: true,
-      shipments: shipments || []
+      shipments: transformedShipments
     });
   } catch (error) {
     console.error('Get incoming shipments error:', error);
