@@ -681,3 +681,146 @@ export async function getRackCapacity(req, res) {
     });
   }
 }
+
+
+/**
+ * Assign storage positions to approved shipment products
+ * Creates inventory units and marks shipment as COMPLETED
+ */
+export const assignStorage = async (req, res) => {
+  try {
+    const { shipment_id, assignments } = req.body;
+    const user_id = req.user.id;
+
+    console.log('📦 Assigning storage for shipment:', shipment_id);
+    console.log('📍 Assignments:', assignments);
+
+    // Validate input
+    if (!shipment_id || !assignments || !Array.isArray(assignments) || assignments.length === 0) {
+      return res.status(400).json({ 
+        error: 'Missing shipment_id or assignments' 
+      });
+    }
+
+    // Check shipment exists and is APPROVED
+    const { data: shipment, error: shipmentError } = await supabase
+      .from('shipments')
+      .select('id, shipment_number, status')
+      .eq('id', shipment_id)
+      .single();
+
+    if (shipmentError) {
+      console.error('Error fetching shipment:', shipmentError);
+      return res.status(404).json({ error: 'Shipment not found' });
+    }
+
+    if (shipment.status !== 'APPROVED') {
+      return res.status(400).json({ 
+        error: `Shipment must be APPROVED to assign storage. Current status: ${shipment.status}` 
+      });
+    }
+
+    // Create inventory units for each assignment
+    const inventoryUnits = [];
+    const errors = [];
+
+    for (const assignment of assignments) {
+      const { 
+        product_id, 
+        product_name,
+        size, 
+        quantity, 
+        warehouse_id, 
+        rack_id, 
+        position_code 
+      } = assignment;
+
+      // Validate required fields
+      if (!product_id || !warehouse_id || !rack_id || !position_code || !quantity) {
+        errors.push(`Missing required fields for ${product_name || 'unknown product'}`);
+        continue;
+      }
+
+      // Check if rack exists
+      const { data: rack, error: rackError } = await supabase
+        .from('racks')
+        .select('id, rack_code')
+        .eq('id', rack_id)
+        .single();
+
+      if (rackError) {
+        errors.push(`Rack ${rack_id} not found`);
+        continue;
+      }
+
+      // Create inventory unit
+      const { data: inventoryUnit, error: invError } = await supabase
+        .from('inventory_units')
+        .insert({
+          product_id,
+          barcode: null, // Will be assigned later when barcodes are generated
+          batch_id: null, // Optional: can be linked to batch if available
+          shipment_id,
+          warehouse_id,
+          rack_id,
+          position_code,
+          quantity: parseInt(quantity),
+          status: 'AVAILABLE',
+          created_by: user_id,
+          updated_by: user_id
+        })
+        .select()
+        .single();
+
+      if (invError) {
+        console.error('Error creating inventory unit:', invError);
+        errors.push(`Failed to create inventory unit for ${product_name}: ${invError.message}`);
+        continue;
+      }
+
+      inventoryUnits.push(inventoryUnit);
+      console.log(`✅ Created inventory unit for ${product_name} at ${position_code}`);
+    }
+
+    // If any errors occurred but some succeeded
+    if (errors.length > 0 && inventoryUnits.length > 0) {
+      console.warn('⚠️  Partial success with errors:', errors);
+    }
+
+    // If ALL failed
+    if (inventoryUnits.length === 0) {
+      return res.status(400).json({ 
+        error: 'Failed to create any inventory units', 
+        details: errors 
+      });
+    }
+
+    // Update shipment status to COMPLETED
+    const { error: updateError } = await supabase
+      .from('shipments')
+      .update({ 
+        status: 'COMPLETED',
+        updated_at: new Date().toISOString(),
+        updated_by: user_id
+      })
+      .eq('id', shipment_id);
+
+    if (updateError) {
+      console.error('Error updating shipment status:', updateError);
+      // Don't fail the request - inventory units were created
+    } else {
+      console.log(`✅ Updated shipment ${shipment.shipment_number} status to COMPLETED`);
+    }
+
+    res.json({
+      success: true,
+      message: `Storage assigned successfully for ${shipment.shipment_number}`,
+      inventory_units_created: inventoryUnits.length,
+      errors: errors.length > 0 ? errors : undefined
+    });
+
+  } catch (error) {
+    console.error('Error assigning storage:', error);
+    res.status(500).json({ error: error.message });
+  }
+};

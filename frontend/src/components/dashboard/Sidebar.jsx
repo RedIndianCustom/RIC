@@ -28,6 +28,7 @@ import {
   Layers,
   Ship,
   PackageOpen,
+  MapPin,
   FileText,
   PackagePlus,
   BookOpen,

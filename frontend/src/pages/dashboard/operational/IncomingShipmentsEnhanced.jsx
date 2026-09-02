@@ -175,28 +175,63 @@ export default function IncomingShipmentsEnhanced() {
         text: 'text-yellow-700',
         icon: Clock,
         border: 'border-yellow-200',
-        badge: 'bg-yellow-100 text-yellow-800'
+        badge: 'bg-yellow-100 text-yellow-800',
+        label: 'Pending',
+        description: 'Awaiting send to warehouse'
       },
       'IN_TRANSIT': { 
         bg: 'bg-blue-50', 
         text: 'text-blue-700',
         icon: Truck,
         border: 'border-blue-200',
-        badge: 'bg-blue-100 text-blue-800'
+        badge: 'bg-blue-100 text-blue-800',
+        label: 'In Transit',
+        description: 'Sent to warehouse for receiving'
+      },
+      'RECEIVING': { 
+        bg: 'bg-indigo-50', 
+        text: 'text-indigo-700',
+        icon: Package,
+        border: 'border-indigo-200',
+        badge: 'bg-indigo-100 text-indigo-800',
+        label: 'Receiving',
+        description: 'Warehouse staff scanning items'
       },
       'READY_FOR_QC': { 
         bg: 'bg-purple-50', 
         text: 'text-purple-700',
-        icon: CheckCircle2,
+        icon: AlertCircle,
         border: 'border-purple-200',
-        badge: 'bg-purple-100 text-purple-800'
+        badge: 'bg-purple-100 text-purple-800',
+        label: 'Awaiting Manager Approval',
+        description: 'QC complete, needs manager approval'
+      },
+      'APPROVED': { 
+        bg: 'bg-green-50', 
+        text: 'text-green-700',
+        icon: CheckCircle2,
+        border: 'border-green-200',
+        badge: 'bg-green-100 text-green-800',
+        label: 'Approved - Processing',
+        description: 'Manager approved, creating inventory'
+      },
+      'COMPLETED': { 
+        bg: 'bg-emerald-50', 
+        text: 'text-emerald-700',
+        icon: CheckCircle2,
+        border: 'border-emerald-200',
+        badge: 'bg-emerald-100 text-emerald-800',
+        label: 'Completed',
+        description: 'Stored in warehouse positions'
       },
       'RECEIVED': { 
         bg: 'bg-green-50', 
         text: 'text-green-700',
         icon: CheckCircle2,
         border: 'border-green-200',
-        badge: 'bg-green-100 text-green-800'
+        badge: 'bg-green-100 text-green-800',
+        label: 'Received',
+        description: 'Legacy status - completed'
       }
     };
     return configs[status] || { 
@@ -204,7 +239,9 @@ export default function IncomingShipmentsEnhanced() {
       text: 'text-gray-700', 
       icon: Package,
       border: 'border-gray-200',
-      badge: 'bg-gray-100 text-gray-800'
+      badge: 'bg-gray-100 text-gray-800',
+      label: status || 'Unknown',
+      description: 'Unknown status'
     };
   };
 
@@ -220,7 +257,10 @@ export default function IncomingShipmentsEnhanced() {
     total: shipments.length,
     pending: shipments.filter(s => s.status === 'PENDING').length,
     inTransit: shipments.filter(s => s.status === 'IN_TRANSIT').length,
-    readyForQC: shipments.filter(s => s.status === 'READY_FOR_QC').length
+    receiving: shipments.filter(s => s.status === 'RECEIVING').length,
+    readyForQC: shipments.filter(s => s.status === 'READY_FOR_QC').length,
+    approved: shipments.filter(s => s.status === 'APPROVED').length,
+    completed: shipments.filter(s => ['COMPLETED', 'RECEIVED'].includes(s.status)).length
   };
 
   return (
@@ -253,44 +293,64 @@ export default function IncomingShipmentsEnhanced() {
       </AnimatePresence>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Shipments</p>
+              <p className="text-xs text-gray-600">Total</p>
               <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
             </div>
-            <Package className="w-8 h-8 text-gray-400" />
+            <Package className="w-6 h-6 text-gray-400" />
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-md border border-yellow-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-xs text-gray-600">Pending</p>
               <p className="text-2xl font-bold text-yellow-600">{stats.pending}</p>
             </div>
-            <Clock className="w-8 h-8 text-yellow-400" />
+            <Clock className="w-6 h-6 text-yellow-400" />
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-md border border-blue-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">In Transit</p>
+              <p className="text-xs text-gray-600">In Transit</p>
               <p className="text-2xl font-bold text-blue-600">{stats.inTransit}</p>
             </div>
-            <Truck className="w-8 h-8 text-blue-400" />
+            <Truck className="w-6 h-6 text-blue-400" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md border border-indigo-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-600">Receiving</p>
+              <p className="text-2xl font-bold text-indigo-600">{stats.receiving}</p>
+            </div>
+            <Package className="w-6 h-6 text-indigo-400" />
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-md border border-purple-200 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Ready for QC</p>
+              <p className="text-xs text-gray-600">Awaiting Approval</p>
               <p className="text-2xl font-bold text-purple-600">{stats.readyForQC}</p>
             </div>
-            <CheckCircle2 className="w-8 h-8 text-purple-400" />
+            <AlertCircle className="w-6 h-6 text-purple-400" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-md border border-green-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-gray-600">Completed</p>
+              <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
+            </div>
+            <CheckCircle2 className="w-6 h-6 text-green-400" />
           </div>
         </div>
       </div>
@@ -317,8 +377,11 @@ export default function IncomingShipmentsEnhanced() {
             <option value="all">All Status</option>
             <option value="PENDING">Pending</option>
             <option value="IN_TRANSIT">In Transit</option>
-            <option value="READY_FOR_QC">Ready for QC</option>
-            <option value="RECEIVED">Received</option>
+            <option value="RECEIVING">Receiving</option>
+            <option value="READY_FOR_QC">Awaiting Approval</option>
+            <option value="APPROVED">Approved</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="RECEIVED">Received (Legacy)</option>
           </select>
         </div>
       </div>
@@ -366,7 +429,7 @@ export default function IncomingShipmentsEnhanced() {
                             {shipment.shipment_number}
                           </h3>
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusConfig.badge}`}>
-                            {shipment.status}
+                            {statusConfig.label}
                           </span>
                         </div>
 
@@ -426,12 +489,9 @@ export default function IncomingShipmentsEnhanced() {
                           )}
                         </motion.button>
                       ) : (
-                        <div className="px-4 py-2 bg-gray-100 text-gray-500 rounded-lg flex items-center gap-2 text-sm">
-                          <CheckCircle2 className="w-4 h-4" />
-                          {shipment.status === 'IN_TRANSIT' && 'Sent to Warehouse'}
-                          {shipment.status === 'READY_FOR_QC' && 'In QC Inspection'}
-                          {shipment.status === 'RECEIVED' && 'Completed'}
-                          {!['IN_TRANSIT', 'READY_FOR_QC', 'RECEIVED'].includes(shipment.status) && shipment.status}
+                        <div className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg flex items-center gap-2 text-sm font-medium">
+                          <StatusIcon className="w-4 h-4" />
+                          {statusConfig.description}
                         </div>
                       )}
                       <button

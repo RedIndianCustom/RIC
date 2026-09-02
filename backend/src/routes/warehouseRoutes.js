@@ -12,7 +12,8 @@ import {
   relocateInventoryUnit,
   scanInventoryUnit,
   getRackCapacity,
-  validateBarcodeSize
+  validateBarcodeSize,
+  assignStorage
 } from '../controllers/warehouseController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { requireRole } from '../middleware/roleMiddleware.js';
@@ -55,6 +56,14 @@ router.post(
   authenticate,
   requireRole('operational_staff', 'manager'),
   relocateInventoryUnit
+);
+
+// Assign storage positions to approved shipments (warehouse staff)
+router.post(
+  '/warehouse/assign-storage',
+  authenticate,
+  requireRole('warehouse_staff', 'admin'),
+  assignStorage
 );
 
 export default router;
