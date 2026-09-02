@@ -28,7 +28,7 @@ import SystemSettings      from '../pages/dashboard/admin/SystemSettings.jsx';
 
 // ── Manager ───────────────────────────────────────────────────
 import BarcodeMonitoring   from '../pages/dashboard/manager/BarcodeMonitoring.jsx';
-import ApprovalRequests    from '../pages/dashboard/manager/ApprovalRequests.jsx';
+import UnifiedApprovals    from '../pages/dashboard/manager/UnifiedApprovals.jsx';
 import DiscrepancyApproval from '../pages/dashboard/manager/DiscrepancyApproval.jsx';
 import QCApproval          from '../pages/dashboard/manager/QCApproval.jsx';
 import AllReports          from '../pages/dashboard/manager/AllReports.jsx';
@@ -145,7 +145,7 @@ export default function AppRoutes() {
           ═══════════════════════════════════════════════════ */}
           <Route element={<RoleRoute allowed={[M, A]} />}>
             <Route path="/barcodes"                      element={<BarcodeMonitoring />} />
-            <Route path="/approvals"                     element={<ApprovalRequests />} />
+            <Route path="/approvals"                     element={<UnifiedApprovals />} />
             <Route path="/manager/discrepancy-approval"  element={<DiscrepancyApproval />} />
             <Route path="/manager/qc-approval"           element={<QCApproval />} />
             <Route path="/reports"                       element={<AllReports />} />

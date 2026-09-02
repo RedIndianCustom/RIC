@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Truck,
@@ -46,6 +47,7 @@ import {
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import api from '../../../services/api.js';
 import { toast } from '../../../utils/toast';
+import QCDeadlineSelector from '../../../components/qc/QCDeadlineSelector';
 
 export default function ReceivingEnhanced() {
   const [shipments, setShipments] = useState([]);
@@ -54,6 +56,10 @@ export default function ReceivingEnhanced() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [expandedShipments, setExpandedShipments] = useState({});
+  
+  // Breakdown modal state
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
+  const [selectedBreakdownShipment, setSelectedBreakdownShipment] = useState(null);
 
   // Receiving modal state
   const [showReceivingModal, setShowReceivingModal] = useState(false);
@@ -81,6 +87,10 @@ export default function ReceivingEnhanced() {
   const [availableCameras, setAvailableCameras] = useState([]);
   const [recentScans, setRecentScans] = useState([]);
   const [continuousScanMode, setContinuousScanMode] = useState(false);
+  
+  // QC Deadline modal state (for manager approval)
+  const [showDeadlineModal, setShowDeadlineModal] = useState(false);
+  const [pendingCompletedShipment, setPendingCompletedShipment] = useState(null);
   
   const scanInputRef = useRef(null);
   const html5QrCodeRef = useRef(null);
@@ -435,6 +445,21 @@ export default function ReceivingEnhanced() {
       stopCamera();
     };
   }, []);
+
+  // Handle body scroll lock and blur for breakdown modal
+  useEffect(() => {
+    if (showBreakdownModal) {
+      document.body.style.overflow = 'hidden';
+      document.body.classList.add('modal-open');
+    } else {
+      document.body.style.overflow = '';
+      document.body.classList.remove('modal-open');
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.classList.remove('modal-open');
+    };
+  }, [showBreakdownModal]);
 
   const handleCloseModal = async () => {
     await stopCamera();
@@ -854,12 +879,54 @@ export default function ReceivingEnhanced() {
     }
   };
 
-  // Toggle breakdown expansion
-  const toggleBreakdown = (shipmentId) => {
-    setExpandedShipments(prev => ({
-      ...prev,
-      [shipmentId]: !prev[shipmentId]
-    }));
+  // Handle QC Deadline Selection (for Manager Approval flow)
+  // This will be called when manager approves a received shipment for QC
+  const handleDeadlineSelected = async (deadlineConfig) => {
+    try {
+      // Create QC inspection with deadline settings
+      const { data } = await api.post('/receiving-qc/qc-inspection/create', {
+        shipment_id: pendingCompletedShipment.id,
+        deadline_type: deadlineConfig.type,
+        custom_deadline_days: deadlineConfig.customDays,
+        deadline_reason: deadlineConfig.reason
+      });
+
+      if (data.success) {
+        toast.success('QC inspection created with deadline set!');
+        setShowDeadlineModal(false);
+        setPendingCompletedShipment(null);
+        loadShipments();
+      }
+    } catch (error) {
+      console.error('Error creating QC inspection:', error);
+      toast.error('Failed to create QC inspection');
+    }
+  };
+
+  // For Manager Approval: Approve receiving and show deadline selector
+  // NOTE: This should be called from a manager approval interface
+  // For now, adding this function for when that interface is built
+  const handleManagerApprove = async (shipment) => {
+    try {
+      // Manager approves the receiving
+      // (Your backend approval endpoint here - adjust as needed)
+      await api.post('/receiving-qc/receiving/complete', {
+        shipment_id: shipment.id
+      });
+
+      // Show deadline selector for QC inspection
+      setPendingCompletedShipment(shipment);
+      setShowDeadlineModal(true);
+    } catch (error) {
+      console.error('Error approving receiving:', error);
+      toast.error('Failed to approve receiving');
+    }
+  };
+
+  // Toggle breakdown expansion - Now opens modal instead
+  const toggleBreakdown = (shipment) => {
+    setSelectedBreakdownShipment(shipment);
+    setShowBreakdownModal(true);
   };
 
   // Filtered shipments
@@ -1002,11 +1069,8 @@ export default function ReceivingEnhanced() {
               animate={{ opacity: 1, y: 0 }}
               className="bg-white rounded-xl border border-slate-200 hover:shadow-lg transition-all overflow-hidden"
             >
-              {/* Card Header - Clickable to expand/collapse - Mobile Responsive */}
-              <div 
-                className="p-4 sm:p-6 cursor-pointer"
-                onClick={() => toggleBreakdown(shipment.id)}
-              >
+              {/* Card Header - Non-clickable, breakdown via button - Mobile Responsive */}
+              <div className="p-4 sm:p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 sm:gap-3 mb-2 sm:mb-3 flex-wrap">
@@ -1023,11 +1087,14 @@ export default function ReceivingEnhanced() {
                       }`}>
                         {shipment.status}
                       </span>
-                      <ChevronRight 
-                        className={`w-4 h-4 sm:w-5 sm:h-5 text-slate-400 transition-transform ml-auto flex-shrink-0 ${
-                          expandedShipments[shipment.id] ? 'rotate-90' : ''
-                        }`}
-                      />
+                      <button
+                        onClick={() => toggleBreakdown(shipment)}
+                        className="ml-auto flex-shrink-0 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium transition-colors flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs"
+                      >
+                        <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                        <span className="hidden sm:inline">View Breakdown</span>
+                        <span className="sm:hidden">Breakdown</span>
+                      </button>
                     </div>
 
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-xs sm:text-sm">
@@ -1061,248 +1128,257 @@ export default function ReceivingEnhanced() {
                   </div>
                 </div>
               </div>
-
-
-              {/* Product Breakdown Table - Expandable */}
-              <AnimatePresence>
-                {expandedShipments[shipment.id] && shipment.product_breakdown && typeof shipment.product_breakdown === 'object' && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="border-t border-slate-200"
-                  >
-                    <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-                      <div className="bg-slate-50 rounded-lg p-3 sm:p-4">
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 text-xs sm:text-sm">
-                          <div>
-                            <span className="text-slate-600">Total Products:</span>
-                            <span className="ml-2 font-bold text-slate-900">
-                              {Array.isArray(shipment.product_breakdown) 
-                                ? shipment.product_breakdown.length 
-                                : Object.keys(shipment.product_breakdown).length} types
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600">Total Quantity:</span>
-                            <span className="ml-2 font-bold text-blue-600">
-                              {Array.isArray(shipment.product_breakdown)
-                                ? shipment.product_breakdown.reduce((sum, item) => sum + (item.quantity || 0), 0)
-                                : Object.values(shipment.product_breakdown).reduce((sum, item) => {
-                                    return sum + (typeof item === 'number' ? item : (item.quantity || 0));
-                                  }, 0)} units
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-slate-600">Total Value:</span>
-                            <span className="ml-2 font-bold text-slate-900">₱0</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 mb-3">
-                        <Package className="w-4 h-4 text-blue-600" />
-                        <h4 className="font-semibold text-sm sm:text-base text-slate-900">Product Size Breakdown</h4>
-                      </div>
-
-                      <div className="overflow-x-auto -mx-4 sm:mx-0">
-                        <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                          <table className="w-full text-xs sm:text-sm">
-                            <thead>
-                              <tr className="border-b border-slate-200">
-                                <th className="text-left py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs">PRODUCT</th>
-                                <th className="text-left py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs">SIZE</th>
-                                <th className="text-center py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs">QTY</th>
-                                <th className="text-left py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs hidden sm:table-cell">POSITIONS</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(Array.isArray(shipment.product_breakdown)
-                                ? shipment.product_breakdown
-                                : Object.entries(shipment.product_breakdown).map(([key, value]) => {
-                                    // Handle both formats: { "size": quantity } or { "size": { ...details } }
-                                    if (typeof value === 'number') {
-                                      return { dimensions: key, quantity: value };
-                                    } else if (typeof value === 'object') {
-                                      return { dimensions: key, ...value };
-                                    }
-                                    return null;
-                                  }).filter(Boolean)
-                              ).map((item, index) => {
-                                const size = item.dimensions || item.size || item.product_size || 'Unknown';
-                                const quantity = item.quantity || 0;
-                                const productName = item.product_name || item.brand || 'Red Indian Customs Dual Sport XT';
-                                const sku = item.sku || `DSXT-17-${size.replace('/', '-')}`;
-                                
-                                return (
-                                  <tr key={index} className="border-b border-slate-100 hover:bg-slate-50">
-                                    <td className="py-2 sm:py-3 px-2 sm:px-3">
-                                      <div>
-                                        <p className="font-medium text-slate-900 text-xs sm:text-sm truncate max-w-[120px] sm:max-w-none">{productName}</p>
-                                        <p className="text-[10px] sm:text-xs text-slate-500 hidden sm:block">{productName} {size}</p>
-                                        <p className="text-[10px] sm:text-xs text-slate-400">SKU: {sku}</p>
-                                      </div>
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-2 sm:px-3">
-                                      <span className="inline-flex items-center px-2 sm:px-3 py-0.5 sm:py-1 rounded-full bg-blue-100 text-blue-700 font-medium text-[10px] sm:text-xs">
-                                        {size}
-                                      </span>
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-2 sm:px-3 text-center">
-                                      <span className="font-bold text-slate-900 text-xs sm:text-sm">{quantity}</span>
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-2 sm:px-3 hidden sm:table-cell">
-                                      <div className="flex flex-wrap gap-1">
-                                        {item.assigned_positions && Array.isArray(item.assigned_positions) && item.assigned_positions.length > 0 ? (
-                                          item.assigned_positions.slice(0, 4).map((pos, i) => {
-                                            // Handle if pos is an object with position_code or if it's a string
-                                            const positionCode = typeof pos === 'string' ? pos : (pos.position_code || 'N/A');
-                                            return (
-                                              <span key={i} className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 bg-green-100 text-green-700 rounded font-mono">
-                                                {positionCode}
-                                              </span>
-                                            );
-                                          })
-                                        ) : (
-                                          // Mock assigned positions if none exist
-                                          Array.from({ length: Math.min(4, Math.ceil(quantity / 14)) }).map((_, i) => (
-                                            <span key={i} className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 bg-green-100 text-green-700 rounded font-mono">
-                                              WH2-R02-RK01-S06-SH0{i + 7}-SUB01
-                                            </span>
-                                          ))
-                                        )}
-                                        {item.assigned_positions && Array.isArray(item.assigned_positions) && item.assigned_positions.length > 4 && (
-                                          <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 text-slate-600">
-                                            +{item.assigned_positions.length - 4} more
-                                          </span>
-                                        )}
-                                        {quantity > 56 && (!item.assigned_positions || item.assigned_positions.length === 0) && (
-                                          <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 text-slate-600">
-                                            ({Math.ceil(quantity / 14)} units)
-                                          </span>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              <tr className="bg-slate-50 font-bold">
-                                <td colSpan="2" className="py-2 sm:py-3 px-2 sm:px-3 text-slate-900 text-xs sm:text-sm">TOTAL</td>
-                                <td className="py-2 sm:py-3 px-2 sm:px-3 text-center text-slate-900 text-xs sm:text-sm">
-                                  {Array.isArray(shipment.product_breakdown)
-                                    ? shipment.product_breakdown.reduce((sum, item) => sum + (item.quantity || 0), 0)
-                                    : Object.values(shipment.product_breakdown).reduce((sum, item) => {
-                                        return sum + (typeof item === 'number' ? item : (item.quantity || 0));
-                                      }, 0)}
-                                </td>
-                                <td className="py-2 sm:py-3 px-2 sm:px-3 hidden sm:table-cell"></td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Action Card - Changes based on shipment status */}
-                      {/* Action Card - IN_TRANSIT - Mobile Responsive */}
-                      {shipment.status === 'IN_TRANSIT' && (
-                        <div className="p-3 sm:p-4 rounded-lg bg-blue-50 border border-blue-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
-                          <Truck className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm sm:text-base text-blue-900">Ready to Receive</p>
-                            <p className="text-xs sm:text-sm text-blue-700 mt-1">
-                              Click "Start Receiving" to begin the inspection and scanning process.
-                            </p>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartReceiving(shipment);
-                            }}
-                            className="w-full sm:w-auto px-3 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-md text-sm sm:text-base"
-                          >
-                            <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            Start Receiving
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Action Card - INSPECTING - Mobile Responsive */}
-                      {shipment.status === 'INSPECTING' && (
-                        <div className="p-3 sm:p-4 rounded-lg bg-orange-50 border border-orange-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
-                          <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600 flex-shrink-0 mt-0.5 animate-pulse" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm sm:text-base text-orange-900">Receiving In Progress</p>
-                            <p className="text-xs sm:text-sm text-orange-700 mt-1">
-                              This shipment is currently being inspected. Click to continue scanning.
-                            </p>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartReceiving(shipment);
-                            }}
-                            className="w-full sm:w-auto px-3 sm:px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-md text-sm sm:text-base"
-                          >
-                            <ScanBarcode className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            Continue Scanning
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Action Card - ARRIVED - Mobile Responsive */}
-                      {shipment.status === 'ARRIVED' && (
-                        <div className="p-3 sm:p-4 rounded-lg bg-green-50 border border-green-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
-                          <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm sm:text-base text-green-900">Shipment Arrived</p>
-                            <p className="text-xs sm:text-sm text-green-700 mt-1">
-                              Shipment has arrived. Start the receiving process to inspect items.
-                            </p>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartReceiving(shipment);
-                            }}
-                            className="w-full sm:w-auto px-3 sm:px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-md text-sm sm:text-base"
-                          >
-                            <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            Begin Inspection
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Action Card - RECEIVED - Mobile Responsive */}
-                      {shipment.status === 'RECEIVED' && (
-                        <div className="p-3 sm:p-4 rounded-lg bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
-                          <CheckCheck className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm sm:text-base text-slate-900">Receiving Completed</p>
-                            <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                              This shipment has been fully received and stored.
-                            </p>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // Optional: Add view details functionality
-                            }}
-                            className="w-full sm:w-auto px-3 sm:px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-700 text-white font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap text-sm sm:text-base"
-                            disabled
-                          >
-                            <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            Completed ✓
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </motion.div>
           ))}
         </div>
+      )}
+
+      {/* Product Breakdown Modal */}
+      {showBreakdownModal && selectedBreakdownShipment && createPortal(
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-0 sm:p-4"
+            onClick={() => setShowBreakdownModal(false)}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white sm:rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            >
+              {/* Modal Header */}
+              <div className="sticky top-0 bg-white border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 z-10 flex items-center justify-between">
+                <div className="flex-1 min-w-0 mr-2">
+                  <h2 className="text-base sm:text-xl font-bold text-slate-900 truncate">
+                    Product Breakdown
+                  </h2>
+                  <p className="text-xs sm:text-sm text-slate-600 mt-1 truncate">
+                    Shipment: {selectedBreakdownShipment.shipment_number}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowBreakdownModal(false)}
+                  className="p-2 rounded-lg hover:bg-slate-100 transition-colors flex-shrink-0"
+                >
+                  <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-slate-400" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
+                <div className="bg-slate-50 rounded-lg p-3 sm:p-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 text-xs sm:text-sm">
+                    <div>
+                      <span className="text-slate-600">Total Products:</span>
+                      <span className="ml-2 font-bold text-slate-900">
+                        {Array.isArray(selectedBreakdownShipment.product_breakdown) 
+                          ? selectedBreakdownShipment.product_breakdown.length 
+                          : Object.keys(selectedBreakdownShipment.product_breakdown).length} types
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-600">Total Quantity:</span>
+                      <span className="ml-2 font-bold text-blue-600">
+                        {Array.isArray(selectedBreakdownShipment.product_breakdown)
+                          ? selectedBreakdownShipment.product_breakdown.reduce((sum, item) => sum + (item.quantity || 0), 0)
+                          : Object.values(selectedBreakdownShipment.product_breakdown).reduce((sum, item) => {
+                              return sum + (typeof item === 'number' ? item : (item.quantity || 0));
+                            }, 0)} units
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 mb-3">
+                  <Package className="w-4 h-4 text-blue-600" />
+                  <h4 className="font-semibold text-sm sm:text-base text-slate-900">Product Size Breakdown</h4>
+                </div>
+
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                    <table className="w-full text-xs sm:text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200">
+                          <th className="text-left py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs">PRODUCT</th>
+                          <th className="text-left py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs">SIZE</th>
+                          <th className="text-center py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs">QTY</th>
+                          <th className="text-left py-2 px-2 sm:px-3 text-slate-600 font-medium text-[10px] sm:text-xs">POSITIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(Array.isArray(selectedBreakdownShipment.product_breakdown)
+                          ? selectedBreakdownShipment.product_breakdown
+                          : Object.entries(selectedBreakdownShipment.product_breakdown).map(([key, value]) => {
+                              // Handle both formats: { "size": quantity } or { "size": { ...details } }
+                              if (typeof value === 'number') {
+                                return { dimensions: key, quantity: value };
+                              } else if (typeof value === 'object') {
+                                return { dimensions: key, ...value };
+                              }
+                              return null;
+                            }).filter(Boolean)
+                        ).map((item, index) => {
+                          const size = item.dimensions || item.size || item.product_size || 'Unknown';
+                          const quantity = item.quantity || 0;
+                          const productName = item.product_name || item.brand || 'Red Indian Customs Dual Sport XT';
+                          const sku = item.sku || `DSXT-17-${size.replace('/', '-')}`;
+                          
+                          return (
+                            <tr key={index} className="border-b border-slate-100 hover:bg-slate-50">
+                              <td className="py-2 sm:py-3 px-2 sm:px-3">
+                                <div>
+                                  <p className="font-medium text-slate-900 text-xs sm:text-sm truncate">{productName}</p>
+                                  <p className="text-[10px] sm:text-xs text-slate-500">{productName} {size}</p>
+                                  <p className="text-[10px] sm:text-xs text-slate-400">SKU: {sku}</p>
+                                </div>
+                              </td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3">
+                                <span className="inline-flex items-center px-2 sm:px-3 py-0.5 sm:py-1 rounded-full bg-blue-100 text-blue-700 font-medium text-[10px] sm:text-xs">
+                                  {size}
+                                </span>
+                              </td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3 text-center">
+                                <span className="font-bold text-slate-900 text-xs sm:text-sm">{quantity}</span>
+                              </td>
+                              <td className="py-2 sm:py-3 px-2 sm:px-3">
+                                <div className="flex flex-wrap gap-1">
+                                  {item.assigned_positions && Array.isArray(item.assigned_positions) && item.assigned_positions.length > 0 ? (
+                                    item.assigned_positions.slice(0, 2).map((pos, i) => {
+                                      // Handle if pos is an object with position_code or if it's a string
+                                      const positionCode = typeof pos === 'string' ? pos : (pos.position_code || 'N/A');
+                                      return (
+                                        <span key={i} className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 bg-green-100 text-green-700 rounded font-mono">
+                                          {positionCode}
+                                        </span>
+                                      );
+                                    })
+                                  ) : (
+                                    // Mock assigned positions if none exist
+                                    Array.from({ length: Math.min(2, Math.ceil(quantity / 14)) }).map((_, i) => (
+                                      <span key={i} className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 bg-green-100 text-green-700 rounded font-mono">
+                                        WH2-R02-RK01-S06-SH0{i + 7}-SUB01
+                                      </span>
+                                    ))
+                                  )}
+                                  {item.assigned_positions && Array.isArray(item.assigned_positions) && item.assigned_positions.length > 2 && (
+                                    <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 text-slate-600">
+                                      +{item.assigned_positions.length - 2} more
+                                    </span>
+                                  )}
+                                  {quantity > 28 && (!item.assigned_positions || item.assigned_positions.length === 0) && (
+                                    <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 text-slate-600">
+                                      ({Math.ceil(quantity / 14)} units)
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-slate-50 font-bold">
+                          <td colSpan="2" className="py-2 sm:py-3 px-2 sm:px-3 text-slate-900 text-xs sm:text-sm">TOTAL</td>
+                          <td className="py-2 sm:py-3 px-2 sm:px-3 text-center text-slate-900 text-xs sm:text-sm">
+                            {Array.isArray(selectedBreakdownShipment.product_breakdown)
+                              ? selectedBreakdownShipment.product_breakdown.reduce((sum, item) => sum + (item.quantity || 0), 0)
+                              : Object.values(selectedBreakdownShipment.product_breakdown).reduce((sum, item) => {
+                                  return sum + (typeof item === 'number' ? item : (item.quantity || 0));
+                                }, 0)}
+                          </td>
+                          <td className="py-2 sm:py-3 px-2 sm:px-3"></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Action Buttons Based on Status */}
+                {selectedBreakdownShipment.status === 'IN_TRANSIT' && (
+                  <div className="p-3 sm:p-4 rounded-lg bg-blue-50 border border-blue-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
+                    <Truck className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm sm:text-base text-blue-900">Ready to Receive</p>
+                      <p className="text-xs sm:text-sm text-blue-700 mt-1">
+                        Click "Start Receiving" to begin the inspection and scanning process.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowBreakdownModal(false);
+                        handleStartReceiving(selectedBreakdownShipment);
+                      }}
+                      className="w-full sm:w-auto px-3 sm:px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-md text-sm sm:text-base"
+                    >
+                      <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      Start Receiving
+                    </button>
+                  </div>
+                )}
+
+                {selectedBreakdownShipment.status === 'INSPECTING' && (
+                  <div className="p-3 sm:p-4 rounded-lg bg-orange-50 border border-orange-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
+                    <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600 flex-shrink-0 mt-0.5 animate-pulse" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm sm:text-base text-orange-900">Receiving In Progress</p>
+                      <p className="text-xs sm:text-sm text-orange-700 mt-1">
+                        This shipment is currently being inspected. Click to continue scanning.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowBreakdownModal(false);
+                        handleStartReceiving(selectedBreakdownShipment);
+                      }}
+                      className="w-full sm:w-auto px-3 sm:px-4 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-md text-sm sm:text-base"
+                    >
+                      <ScanBarcode className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      Continue Scanning
+                    </button>
+                  </div>
+                )}
+
+                {selectedBreakdownShipment.status === 'ARRIVED' && (
+                  <div className="p-3 sm:p-4 rounded-lg bg-green-50 border border-green-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
+                    <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm sm:text-base text-green-900">Shipment Arrived</p>
+                      <p className="text-xs sm:text-sm text-green-700 mt-1">
+                        Shipment has arrived. Start the receiving process to inspect items.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowBreakdownModal(false);
+                        handleStartReceiving(selectedBreakdownShipment);
+                      }}
+                      className="w-full sm:w-auto px-3 sm:px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium transition-colors flex items-center justify-center gap-2 whitespace-nowrap shadow-md text-sm sm:text-base"
+                    >
+                      <PlayCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      Begin Inspection
+                    </button>
+                  </div>
+                )}
+
+                {selectedBreakdownShipment.status === 'RECEIVED' && (
+                  <div className="p-3 sm:p-4 rounded-lg bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-start gap-2 sm:gap-3">
+                    <CheckCheck className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm sm:text-base text-slate-900">Receiving Completed</p>
+                      <p className="text-xs sm:text-sm text-slate-600 mt-1">
+                        This shipment has been fully received and stored.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>,
+        document.body
       )}
 
       {/* Receiving Modal - Mobile Responsive */}
@@ -2141,6 +2217,18 @@ export default function ReceivingEnhanced() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* QC Deadline Selector Modal (for Manager Approval) */}
+      {showDeadlineModal && (
+        <QCDeadlineSelector 
+          onSelect={handleDeadlineSelected}
+          onCancel={() => {
+            setShowDeadlineModal(false);
+            setPendingCompletedShipment(null);
+          }}
+          defaultType="STANDARD"
+        />
+      )}
     </div>
   );
 }

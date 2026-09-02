@@ -24,6 +24,10 @@ import {
   getPendingQcInspections,
   getCompletedQcInspections,
   
+  // QC Deadline Management
+  setQcDeadline,
+  getQcDeadlinePresets,
+  
   // Defect Inventory
   getDefectInventory,
   
@@ -68,6 +72,10 @@ router.put('/qc-inspection/:inspection_id/approve', approveQcInspection);
 router.get('/qc-inspection/:inspection_id', getQcInspection);
 router.get('/qc-inspection/pending/all', getPendingQcInspections);
 router.get('/qc-inspection/completed/all', getCompletedQcInspections); // New endpoint for managers
+
+// QC Deadline Management
+router.put('/qc-inspection/:inspection_id/set-deadline', setQcDeadline);
+router.get('/qc-inspection/deadline-presets', getQcDeadlinePresets);
 
 // ============================================================================
 // DEFECT INVENTORY

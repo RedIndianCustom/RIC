@@ -69,10 +69,10 @@ const NAVIGATION = [
         roles: ['warehouse_staff'],
       },
       {
-        id: 'qc-approval',
-        label: 'QC Inspection Approval',
-        icon: FileCheck,
-        path: '/manager/qc-approval',
+        id: 'approvals',
+        label: 'Approvals Center',
+        icon: ClipboardList,
+        path: '/approvals',
         roles: ['manager', 'admin'],
       },
       {

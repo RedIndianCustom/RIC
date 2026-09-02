@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import api from '../../../services/api';
 import BarcodeScanner from '../../../components/scanner/BarcodeScanner';
+import { QCDeadlineBadge } from '../../../components/qc/QCDeadlineIndicator';
 
 export default function QCInspectionEnhanced() {
   const [inspections, setInspections] = useState([]);
@@ -1203,7 +1204,7 @@ export default function QCInspectionEnhanced() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-2 sm:p-4"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4"
               onClick={() => setShowCamera(false)}
             >
               <motion.div
@@ -1415,10 +1416,15 @@ export default function QCInspectionEnhanced() {
                       <h3 className="text-lg sm:text-xl font-bold text-gray-900 truncate">
                         {inspection.inspection_number}
                       </h3>
-                      <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-bold bg-${deadlineStatus.color}-100 text-${deadlineStatus.color}-700 flex items-center gap-1 flex-shrink-0`}>
-                        <DeadlineIcon className="w-3 h-3" />
-                        {deadlineStatus.text}
-                      </span>
+                      
+                      {/* QC Deadline Badge */}
+                      <QCDeadlineBadge 
+                        urgencyLevel={inspection.urgency_level}
+                        daysRemaining={inspection.days_remaining}
+                        hasDeadline={inspection.has_deadline}
+                        deadlineType={inspection.deadline_type}
+                      />
+                      
                       {inspection.status === 'IN_PROGRESS' && (
                         <span className="px-2 sm:px-3 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-700">
                           IN PROGRESS

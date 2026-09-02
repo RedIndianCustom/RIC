@@ -370,7 +370,12 @@ export const approveDiscrepancy = async (req, res) => {
 
 export const createQcInspection = async (req, res) => {
   try {
-    const { shipment_id } = req.body;
+    const { 
+      shipment_id,
+      deadline_type = 'STANDARD',      // 'STANDARD', 'CUSTOM', or 'NONE'
+      custom_deadline_days = null,
+      deadline_reason = null
+    } = req.body;
     const user_id = req.user.id;
 
     // Get total items count
@@ -393,7 +398,14 @@ export const createQcInspection = async (req, res) => {
         ready_for_qc_date: new Date().toISOString(),
         status: 'IN_PROGRESS',
         total_items: totalItems,
-        inspection_start_date: new Date().toISOString()
+        inspection_start_date: new Date().toISOString(),
+        // Deadline settings
+        has_deadline: deadline_type !== 'NONE',
+        deadline_type: deadline_type,
+        custom_deadline_days: deadline_type === 'CUSTOM' ? custom_deadline_days : null,
+        deadline_reason: deadline_reason,
+        deadline_set_by: user_id,
+        deadline_set_at: new Date().toISOString()
       })
       .select()
       .single();
@@ -854,8 +866,8 @@ export const getPendingQcInspections = async (req, res) => {
     const { data, error } = await supabase
       .from('pending_qc_inspections')
       .select('*')
-      .order('is_overdue', { ascending: false })
-      .order('due_date', { ascending: true });
+      .order('urgency_level', { ascending: true }) // OVERDUE, URGENT, SOON, NORMAL, NO_DEADLINE
+      .order('due_date', { ascending: true, nullsFirst: false });
 
     if (error) throw error;
 
@@ -1113,6 +1125,92 @@ export const createWorkflowNotification = async (req, res) => {
     }
   } catch (error) {
     console.error('Error creating notification:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+
+// ============================================================================
+// QC DEADLINE MANAGEMENT
+// ============================================================================
+
+/**
+ * Set QC Inspection Deadline
+ * Allows operational managers to set flexible deadlines for QC inspections
+ */
+export const setQcDeadline = async (req, res) => {
+  try {
+    const { inspection_id } = req.params;
+    const { 
+      deadline_type,      // 'STANDARD', 'CUSTOM', or 'NONE'
+      custom_deadline_days, 
+      deadline_reason 
+    } = req.body;
+    const manager_id = req.user.id;
+
+    // Validate deadline_type
+    if (!['STANDARD', 'CUSTOM', 'NONE'].includes(deadline_type)) {
+      return res.status(400).json({ 
+        error: 'deadline_type must be STANDARD, CUSTOM, or NONE' 
+      });
+    }
+
+    // Validate custom_deadline_days if CUSTOM type
+    if (deadline_type === 'CUSTOM' && (!custom_deadline_days || custom_deadline_days <= 0)) {
+      return res.status(400).json({ 
+        error: 'custom_deadline_days must be a positive number when deadline_type is CUSTOM' 
+      });
+    }
+
+    // Call the database function
+    const { data, error } = await supabase
+      .rpc('set_qc_inspection_deadline', {
+        p_qc_inspection_id: inspection_id,
+        p_deadline_type: deadline_type,
+        p_custom_deadline_days: deadline_type === 'CUSTOM' ? custom_deadline_days : null,
+        p_deadline_reason: deadline_reason || null,
+        p_manager_id: manager_id
+      });
+
+    if (error) throw error;
+
+    if (!data.success) {
+      return res.status(400).json({ error: data.error });
+    }
+
+    res.json({
+      success: true,
+      message: 'QC inspection deadline set successfully',
+      data: data.inspection
+    });
+
+  } catch (error) {
+    console.error('Error setting QC deadline:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Get QC Deadline Presets
+ * Returns predefined deadline options for managers to choose from
+ */
+export const getQcDeadlinePresets = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('qc_deadline_presets')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (error) throw error;
+
+    res.json({
+      success: true,
+      data: data || []
+    });
+
+  } catch (error) {
+    console.error('Error fetching deadline presets:', error);
     res.status(500).json({ error: error.message });
   }
 };

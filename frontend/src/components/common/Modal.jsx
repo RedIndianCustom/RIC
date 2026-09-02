@@ -50,8 +50,9 @@ export default function Modal({ isOpen, title, onClose, children, footer, size =
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
       onClick={onClose}
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
     >
       <div
         className={`w-full ${maxW} rounded-2xl border border-slate-200 bg-white shadow-2xl flex flex-col max-h-[90vh]`}
