@@ -27,6 +27,7 @@ export async function submitReceivingReport(req, res) {
   try {
     const {
       shipment_id,
+      session_id, // Session ID from frontend
       size_breakdown, // Array: [{size, expected, scanned, discrepancy}]
       total_expected,
       total_scanned,
@@ -76,6 +77,7 @@ export async function submitReceivingReport(req, res) {
 
     console.log('📦 Submitting receiving report:', {
       shipment_id,
+      session_id,
       submitted_by: userId,
       total_expected,
       total_scanned,
@@ -86,6 +88,7 @@ export async function submitReceivingReport(req, res) {
     // Call database function
     const { data, error } = await supabase.rpc('submit_receiving_report', {
       p_shipment_id: shipment_id,
+      p_session_id: session_id,
       p_submitted_by: userId,
       p_size_breakdown: size_breakdown,
       p_total_expected: total_expected,

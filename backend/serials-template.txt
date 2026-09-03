@@ -1,0 +1,17 @@
+# RIC Serial Number Mapping Template
+# Format: SERIAL_NUMBER,SKU
+# Lines starting with # are ignored
+
+# Classic Sawtooth 90/90-17 (SAW-17-90/90)
+RIC000000006038,SAW-17-90/90
+
+# Armor XT 100/80-17 (ARXT-17-100/80)
+RIC000000006060,ARXT-17-100/80
+
+# Dual Sport XT 100/90-17 (DSXT-17-100/90)
+RIC000000006090,DSXT-17-100/90
+
+# Add more serials below (remove # to uncomment):
+# RIC000000006091,DSXT-17-100/90
+# RIC000000006092,SAW-17-90/90
+# RIC000000006093,ARXT-17-100/80

@@ -361,11 +361,19 @@ export async function createBarcodes({
   // ---------------------------------------------------------
   // QR generation happens in Node.js (not in PostgreSQL)
   // This is cleaner separation of concerns
+  // 
+  // **IMPORTANT**: Use traceability_url (contains unique RIC serial)
+  // Each tire gets unique ID: RIC000000006072, RIC000000006073, etc.
+  // This enables duplicate detection AND product identification
   console.log(`🔄 Generating QR codes for ${data.barcodes.length} barcodes...`);
+  console.log(`📦 Product: ${data.product_sku}`);
 
   const barcodesWithQR = await Promise.all(
     data.barcodes.map(async (barcode) => {
       try {
+        // Use traceability_url which contains unique RIC serial
+        // Format: http://localhost:5173/trace/RIC000000006072
+        // Backend will extract RIC serial and map it to product
         const qrCodeData = await QRCode.toDataURL(
           barcode.traceability_url,
           {
@@ -405,7 +413,51 @@ export async function createBarcodes({
   console.log(`✅ QR codes generated and saved successfully`);
 
   // ---------------------------------------------------------
-  // 5. RETURN COMPLETE RESULT
+  // 5. CREATE RIC SERIAL MAPPINGS FOR AUTOMATIC IDENTIFICATION
+  // ---------------------------------------------------------
+  console.log(`🔗 Creating RIC serial mappings for automatic product identification...`);
+  
+  try {
+    // Fetch product details for the mapping
+    const { data: product, error: productError } = await supabaseAdmin
+      .from('products')
+      .select('id, sku, dimensions, category')
+      .eq('id', productId)
+      .single();
+    
+    if (productError) {
+      console.warn(`⚠️  Could not fetch product details:`, productError.message);
+    } else {
+      // Create mapping entries for each barcode
+      const mappingPromises = barcodesWithQR.map(async (barcode) => {
+        const { error: mapError } = await supabaseAdmin
+          .from('ric_serial_numbers')
+          .upsert({
+            serial_number: barcode.barcode_value,
+            product_id: productId,
+            batch_number: data.batch_number || null,
+            status: 'MANUFACTURED',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'serial_number' // Update if already exists
+          });
+        
+        if (mapError) {
+          console.warn(`⚠️  Failed to create mapping for ${barcode.barcode_value}:`, mapError.message);
+        }
+      });
+      
+      await Promise.all(mappingPromises);
+      console.log(`✅ Created ${barcodesWithQR.length} RIC serial mapping(s) for ${product.sku}`);
+    }
+  } catch (mappingError) {
+    console.warn(`⚠️  RIC serial mapping creation failed (non-fatal):`, mappingError.message);
+    // Don't fail the entire operation if mapping fails
+  }
+
+  // ---------------------------------------------------------
+  // 6. RETURN COMPLETE RESULT
   // ---------------------------------------------------------
   return {
     success: true,

@@ -30,6 +30,7 @@ import inventoryAdvancedRoutes from './routes/inventoryAdvancedRoutes.js';
 import warehouseOperationsRoutes from './routes/warehouseOperationsRoutes.js';
 import receivingQcRoutes from './routes/receivingQcRoutes.js';
 import receivingRoutes from './routes/receiving.js';
+import receivingScanDrivenRoutes from './routes/receivingScanDrivenRoutes.js';
 
 const app = express();
 
@@ -74,6 +75,9 @@ app.use('/api/receiving-qc', receivingQcRoutes);
 
 // Receiving Workflow (Size-by-size receiving, Manager Approval, QC Batch Creation)
 app.use('/api/receiving', receivingRoutes);
+
+// Scan-Driven Receiving Workflow (Automatic product identification from barcodes)
+app.use('/api/warehouse/receiving', receivingScanDrivenRoutes);
 
 // Orders & Returns
 // Returns are sub-paths of orders: GET /api/orders/returns, POST /api/orders/returns

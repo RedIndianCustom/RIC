@@ -64,6 +64,7 @@ import ScanBarcode         from '../pages/dashboard/operational/ScanBarcode.jsx'
 import Receiving           from '../pages/dashboard/warehouse/Receiving.jsx';
 import ReceivingEnhanced   from '../pages/dashboard/warehouse/ReceivingEnhanced.jsx';
 import ReceivingWithScanningEnhanced from '../pages/dashboard/warehouse/ReceivingWithScanningEnhanced.jsx';
+import ReceivingScanDriven from '../pages/dashboard/warehouse/ReceivingScanDriven.jsx';
 import ScanProducts        from '../pages/dashboard/warehouse/ScanProducts.jsx';
 import ScanProductsEnhanced from '../pages/dashboard/warehouse/ScanProductsEnhanced.jsx';
 import QCInspectionEnhanced from '../pages/dashboard/warehouse/QCInspectionEnhanced.jsx';
@@ -209,8 +210,10 @@ export default function AppRoutes() {
           </Route>
           
           <Route element={<RoleRoute allowed={[WH, M, A]} />}>
-            <Route path="/receiving"                    element={<ReceivingEnhanced />} />
+            <Route path="/receiving"                    element={<ReceivingScanDriven />} />
+            <Route path="/warehouse/receiving-old"      element={<ReceivingEnhanced />} />
             <Route path="/warehouse/receiving-enhanced" element={<ReceivingWithScanningEnhanced />} />
+            <Route path="/warehouse/receiving-scan"     element={<ReceivingScanDriven />} />
             <Route path="/warehouse/scan"               element={<ScanProductsEnhanced />} />
             <Route path="/scan-products"                element={<ScanProductsEnhanced />} />
             <Route path="/inspection"                   element={<Inspection />} />

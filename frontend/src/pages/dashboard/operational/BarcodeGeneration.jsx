@@ -1270,6 +1270,185 @@ export default function BarcodeGeneration() {
     a.click();
   };
 
+  // Download selected QR codes as a ZIP file
+  const downloadSelectedQRCodes = async () => {
+    if (selectedBarcodes.length === 0) {
+      setModalTitle('No Selection');
+      setModalMessage('Please select at least one barcode to download QR codes.');
+      setShowErrorModal(true);
+      return;
+    }
+
+    try {
+      // Import JSZip dynamically
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      
+      // Get selected barcode objects
+      const selectedBarcodeObjects = generatedBarcodes.filter(b => selectedBarcodes.includes(b.id));
+      
+      // Add each QR code to the ZIP
+      selectedBarcodeObjects.forEach((barcode) => {
+        if (barcode.qr_code_data) {
+          // Extract base64 data (remove data URL prefix if present)
+          const base64Data = barcode.qr_code_data.replace(/^data:image\/\w+;base64,/, '');
+          const fileName = `QR_${barcode.barcode_value}.png`;
+          zip.file(fileName, base64Data, { base64: true });
+        }
+      });
+
+      // Generate ZIP file
+      const content = await zip.generateAsync({ type: 'blob' });
+      
+      // Trigger download
+      const url = window.URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `QR_Codes_Selected_${new Date().toISOString().split('T')[0]}.zip`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      setModalTitle('Success!');
+      setModalMessage(`Successfully downloaded ${selectedBarcodeObjects.length} QR code${selectedBarcodeObjects.length > 1 ? 's' : ''} as a ZIP file.`);
+      setShowSuccessModal(true);
+    } catch (err) {
+      console.error('Failed to download QR codes:', err);
+      setModalTitle('Download Failed');
+      setModalMessage('Failed to create ZIP file. Please ensure your browser supports this feature.');
+      setShowErrorModal(true);
+    }
+  };
+
+  // Download all QR codes as a ZIP file
+  const downloadAllQRCodes = async () => {
+    if (generatedBarcodes.length === 0) {
+      setModalTitle('No Barcodes');
+      setModalMessage('No barcodes available to download. Generate some barcodes first.');
+      setShowErrorModal(true);
+      return;
+    }
+
+    try {
+      // Import JSZip dynamically
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      
+      // Add each QR code to the ZIP
+      generatedBarcodes.forEach((barcode) => {
+        if (barcode.qr_code_data) {
+          // Extract base64 data (remove data URL prefix if present)
+          const base64Data = barcode.qr_code_data.replace(/^data:image\/\w+;base64,/, '');
+          const fileName = `QR_${barcode.barcode_value}.png`;
+          zip.file(fileName, base64Data, { base64: true });
+        }
+      });
+
+      // Generate ZIP file
+      const content = await zip.generateAsync({ type: 'blob' });
+      
+      // Trigger download
+      const url = window.URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `QR_Codes_All_${new Date().toISOString().split('T')[0]}.zip`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      setModalTitle('Success!');
+      setModalMessage(`Successfully downloaded all ${generatedBarcodes.length} QR code${generatedBarcodes.length > 1 ? 's' : ''} as a ZIP file.`);
+      setShowSuccessModal(true);
+    } catch (err) {
+      console.error('Failed to download QR codes:', err);
+      setModalTitle('Download Failed');
+      setModalMessage('Failed to create ZIP file. Please ensure your browser supports this feature.');
+      setShowErrorModal(true);
+    }
+  };
+
+  // Download QR codes from a specific folder/group
+  const downloadFolderQRCodes = async (groupKey) => {
+    const group = groupedBarcodes[groupKey];
+    if (!group || group.barcodes.length === 0) {
+      return;
+    }
+
+    try {
+      // Import JSZip dynamically
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      
+      // Add each QR code from this group to the ZIP
+      group.barcodes.forEach((barcode) => {
+        if (barcode.qr_code_data) {
+          // Extract base64 data (remove data URL prefix if present)
+          const base64Data = barcode.qr_code_data.replace(/^data:image\/\w+;base64,/, '');
+          const fileName = `QR_${barcode.barcode_value}.png`;
+          zip.file(fileName, base64Data, { base64: true });
+        }
+      });
+
+      // Generate ZIP file
+      const content = await zip.generateAsync({ type: 'blob' });
+      
+      // Create a safe filename from the group name
+      const safeName = group.name.replace(/[^a-z0-9]/gi, '_').substring(0, 50);
+      
+      // Trigger download
+      const url = window.URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `QR_Codes_${safeName}_${new Date().toISOString().split('T')[0]}.zip`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      setModalTitle('Success!');
+      setModalMessage(`Successfully downloaded ${group.barcodes.length} QR code${group.barcodes.length > 1 ? 's' : ''} from "${group.name}".`);
+      setShowSuccessModal(true);
+    } catch (err) {
+      console.error('Failed to download folder QR codes:', err);
+      setModalTitle('Download Failed');
+      setModalMessage('Failed to create ZIP file. Please ensure your browser supports this feature.');
+      setShowErrorModal(true);
+    }
+  };
+
+  // Download individual QR code
+  const downloadSingleQRCode = (barcode) => {
+    if (!barcode.qr_code_data) {
+      setModalTitle('No QR Code');
+      setModalMessage('This barcode does not have a QR code available.');
+      setShowErrorModal(true);
+      return;
+    }
+
+    try {
+      // Extract base64 data (remove data URL prefix if present)
+      const base64Data = barcode.qr_code_data.replace(/^data:image\/\w+;base64,/, '');
+      
+      // Convert base64 to blob
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+      
+      // Trigger download
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `QR_${barcode.barcode_value}.png`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download QR code:', err);
+      setModalTitle('Download Failed');
+      setModalMessage('Failed to download QR code. Please try again.');
+      setShowErrorModal(true);
+    }
+  };
+
   const toggleProductSelection = (product) => {
     setSelectedProducts(prev => {
       const exists = prev.find(p => p.id === product.id);
@@ -2290,14 +2469,27 @@ export default function BarcodeGeneration() {
               <div className="flex items-center gap-1">
                 {/* NEW: Bulk Actions */}
                 {selectedBarcodes.length > 0 && (
-                  <button
-                    onClick={handleBulkDelete}
-                    className="p-1.5 rounded-lg bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 transition-all text-[10px] font-bold flex items-center gap-1"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Delete ({selectedBarcodes.length})
-                  </button>
+                  <>
+                    <button
+                      onClick={downloadSelectedQRCodes}
+                      className="p-1.5 rounded-lg bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all text-[10px] font-bold flex items-center gap-1"
+                      title="Download Selected QR Codes"
+                    >
+                      <Download className="w-3 h-3" />
+                      QR ({selectedBarcodes.length})
+                    </button>
+                    <button
+                      onClick={handleBulkDelete}
+                      className="p-1.5 rounded-lg bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 transition-all text-[10px] font-bold flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete ({selectedBarcodes.length})
+                    </button>
+                  </>
                 )}
+                <button onClick={downloadAllQRCodes} className="p-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100" title="Download All QR Codes">
+                  <QrCode className="w-3 h-3" />
+                </button>
                 <button onClick={handlePrintAll} className="p-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100" title="Print All">
                   <Printer className="w-3 h-3" />
                 </button>
@@ -2387,6 +2579,16 @@ export default function BarcodeGeneration() {
                           </div>
                         </div>
                         <div className="flex items-start gap-1 ml-2 flex-shrink-0 mt-0.5">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              downloadFolderQRCodes(group.key);
+                            }}
+                            className="p-1 rounded bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all"
+                            title="Download all QR codes in this folder"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
                           <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">
                             {group.barcodes.length}
                           </span>
@@ -2451,6 +2653,13 @@ export default function BarcodeGeneration() {
                                       title="Print"
                                     >
                                       <Printer className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => downloadSingleQRCode(barcode)}
+                                      className="p-1 rounded bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all"
+                                      title="Download QR Code"
+                                    >
+                                      <QrCode className="w-3 h-3" />
                                     </button>
                                     <button
                                       onClick={() => viewTraceability(barcode)}
