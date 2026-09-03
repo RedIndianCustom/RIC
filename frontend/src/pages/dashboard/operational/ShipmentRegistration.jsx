@@ -626,9 +626,9 @@ export default function ShipmentRegistration() {
     setDeleteConfirm(deleteConfirm === shipment.id ? null : shipment.id);
   };
 
-  const handleDeleteConfirm = async (id) => {
+  const handleCancelShipment = async (id) => {
     try {
-      // Update shipment status to CANCELLED instead of deleting (prevents FK constraint violations)
+      // Update shipment status to CANCELLED (soft delete - preserves record)
       await updateShipment(id, { status: 'CANCELLED' });
       setAlert({ type: 'success', message: 'Shipment cancelled successfully!' });
       setDeleteConfirm(null);
@@ -636,6 +636,19 @@ export default function ShipmentRegistration() {
     } catch (err) {
       console.error('Error cancelling shipment:', err);
       setAlert({ type: 'error', message: 'Failed to cancel shipment' });
+    }
+  };
+
+  const handleDeleteConfirm = async (id) => {
+    try {
+      // Permanently delete the shipment from database (hard delete with cascading)
+      await deleteShipment(id, true); // Pass true to force cascading delete
+      setAlert({ type: 'success', message: 'Shipment permanently deleted!' });
+      setDeleteConfirm(null);
+      await loadData();
+    } catch (err) {
+      console.error('Error deleting shipment:', err);
+      setAlert({ type: 'error', message: err.response?.data?.error || err.message || 'Failed to delete shipment' });
     }
   };
 
@@ -2399,7 +2412,7 @@ export default function ShipmentRegistration() {
                 const statusConfig = getStatusConfig(shipment.status);
                 const StatusIcon = statusConfig.icon;
                 const isDeleting = deleteConfirm === shipment.id;
-                const canCancel = shipment.status === 'PENDING'; // Only allow cancelling PENDING shipments
+                const canCancel = true; // Allow deleting shipments at any status
 
                 return (
                   <motion.div
@@ -2507,22 +2520,29 @@ export default function ShipmentRegistration() {
                               <div className="flex items-start space-x-3">
                                 <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
                                 <div>
-                                  <p className="text-sm font-semibold text-red-800">Confirm Cancellation</p>
+                                  <p className="text-sm font-semibold text-red-800">Choose Action</p>
                                   <p className="text-xs text-red-600 mt-1">
-                                    This will change the shipment status to CANCELLED. The shipment record will be preserved for audit purposes.
+                                    <strong>Cancel:</strong> Marks as CANCELLED (keeps record for audit)<br/>
+                                    <strong>Delete:</strong> Permanently removes shipment + all batches + inventory
                                   </p>
                                 </div>
                               </div>
                               <div className="flex space-x-2">
                                 <button
+                                  onClick={() => handleCancelShipment(shipment.id)}
+                                  className="flex-1 px-3 py-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-lg font-medium text-sm hover:shadow-lg transition-all"
+                                >
+                                  Cancel Shipment
+                                </button>
+                                <button
                                   onClick={() => handleDeleteConfirm(shipment.id)}
                                   className="flex-1 px-3 py-2 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-lg font-medium text-sm hover:shadow-lg transition-all"
                                 >
-                                  Yes, Cancel Shipment
+                                  Delete Permanently
                                 </button>
                                 <button
                                   onClick={() => setDeleteConfirm(null)}
-                                  className="flex-1 px-3 py-2 bg-white text-slate-700 rounded-lg font-medium text-sm border border-slate-300 hover:bg-slate-50 transition-all"
+                                  className="px-4 py-2 bg-white text-slate-700 rounded-lg font-medium text-sm border border-slate-300 hover:bg-slate-50 transition-all"
                                 >
                                   Cancel
                                 </button>

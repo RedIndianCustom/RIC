@@ -397,8 +397,65 @@ export async function receiveShipment(req, res) {
 export async function deleteShipment(req, res) {
   try {
     const { id } = req.params;
+    const { force } = req.query; // Check if force delete is requested
 
-    // Check if shipment has batches
+    if (force === 'true') {
+      // HARD DELETE: Cascading deletion of all related records
+      console.log(`⚠️ Force deleting shipment ${id} and all related records...`);
+      
+      // Step 1: Delete related expected items
+      const { error: expectedItemsError } = await supabaseAdmin
+        .from('shipment_expected_items')
+        .delete()
+        .eq('shipment_id', id);
+      
+      if (expectedItemsError) {
+        console.warn('Error deleting expected items:', expectedItemsError);
+      }
+
+      // Step 2: Delete related batches and their inventory units
+      const { data: batches } = await supabaseAdmin
+        .from('batches')
+        .select('id')
+        .eq('shipment_id', id);
+
+      if (batches && batches.length > 0) {
+        for (const batch of batches) {
+          // Delete inventory units for this batch
+          await supabaseAdmin
+            .from('inventory_units')
+            .delete()
+            .eq('batch_id', batch.id);
+        }
+
+        // Delete all batches
+        await supabaseAdmin
+          .from('batches')
+          .delete()
+          .eq('shipment_id', id);
+      }
+
+      // Step 3: Delete the shipment itself
+      const { error: deleteError } = await supabaseAdmin
+        .from('shipments')
+        .delete()
+        .eq('id', id);
+
+      if (deleteError) {
+        console.error('Error force deleting shipment:', deleteError);
+        return res.status(500).json({
+          error: 'Failed to delete shipment',
+          details: deleteError.message
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Shipment and all related records permanently deleted'
+      });
+    }
+
+    // SOFT DELETE: Check if shipment has batches
     const { data: batches } = await supabaseAdmin
       .from('batches')
       .select('id')
@@ -408,7 +465,7 @@ export async function deleteShipment(req, res) {
     if (batches && batches.length > 0) {
       return res.status(409).json({
         error: 'Cannot delete shipment with existing batches',
-        message: 'Please delete all batches first'
+        message: 'Shipment has related batches. Use force delete to remove everything, or cancel the shipment instead.'
       });
     }
 

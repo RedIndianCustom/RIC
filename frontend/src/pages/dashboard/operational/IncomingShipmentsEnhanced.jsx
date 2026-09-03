@@ -270,7 +270,7 @@ export default function IncomingShipmentsEnhanced() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Ship className="w-6 h-6 text-blue-600" />
-            Incoming Shipments (Enhanced)
+            Incoming Shipments
           </h2>
           <p className="text-gray-600 mt-1">View shipments with size breakdown and send to warehouse for receiving</p>
         </div>

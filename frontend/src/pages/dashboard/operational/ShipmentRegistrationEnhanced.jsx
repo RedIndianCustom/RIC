@@ -18,6 +18,7 @@ export default function ShipmentRegistrationEnhanced() {
   const [editingShipment, setEditingShipment] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   // Form data
   const [formData, setFormData] = useState({
@@ -211,6 +212,36 @@ export default function ShipmentRegistrationEnhanced() {
       expected_items: shipment.expected_items || []
     });
     setShowForm(true);
+  };
+
+  const handleDeleteClick = (shipment) => {
+    setDeleteConfirm(deleteConfirm === shipment.id ? null : shipment.id);
+  };
+
+  const handleCancelShipment = async (id) => {
+    try {
+      // Update shipment status to CANCELLED (soft delete - preserves record)
+      await api.put(`/shipments/${id}`, { status: 'CANCELLED' });
+      setAlert({ type: 'success', message: 'Shipment cancelled successfully!' });
+      setDeleteConfirm(null);
+      await loadData();
+    } catch (err) {
+      console.error('Error cancelling shipment:', err);
+      setAlert({ type: 'error', message: 'Failed to cancel shipment' });
+    }
+  };
+
+  const handleDeleteConfirm = async (id) => {
+    try {
+      // Permanently delete the shipment from database (hard delete with cascading)
+      await api.delete(`/shipments/${id}?force=true`);
+      setAlert({ type: 'success', message: 'Shipment permanently deleted!' });
+      setDeleteConfirm(null);
+      await loadData();
+    } catch (err) {
+      console.error('Error deleting shipment:', err);
+      setAlert({ type: 'error', message: err.response?.data?.error || 'Failed to delete shipment' });
+    }
   };
 
   const resetForm = () => {
@@ -656,6 +687,8 @@ export default function ShipmentRegistrationEnhanced() {
           {filteredShipments.map(shipment => {
             const statusConfig = getStatusConfig(shipment.status);
             const StatusIcon = statusConfig.icon;
+            const isDeleting = deleteConfirm === shipment.id;
+            const canCancel = true; // Allow deleting shipments at any status
 
             return (
               <motion.div
@@ -708,11 +741,73 @@ export default function ShipmentRegistrationEnhanced() {
                       whileTap={{ scale: 0.95 }}
                       onClick={() => handleEdit(shipment)}
                       className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Edit Shipment"
                     >
                       <Edit className="w-4 h-4" />
                     </motion.button>
+                    
+                    {canCancel && (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleDeleteClick(shipment)}
+                        className={`p-2 rounded-lg transition-colors ${
+                          isDeleting
+                            ? 'bg-red-100 text-red-600'
+                            : 'text-red-600 hover:bg-red-50'
+                        }`}
+                        title="Delete/Cancel Shipment"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </motion.button>
+                    )}
                   </div>
                 </div>
+
+                {/* Delete Confirmation */}
+                <AnimatePresence>
+                  {isDeleting && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden mt-4"
+                    >
+                      <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4 space-y-3">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-semibold text-red-800">Choose Action</p>
+                            <p className="text-xs text-red-600 mt-1">
+                              <strong>Cancel:</strong> Marks as CANCELLED (keeps record for audit)<br/>
+                              <strong>Delete:</strong> Permanently removes shipment + all batches + inventory
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleCancelShipment(shipment.id)}
+                            className="flex-1 px-3 py-2 bg-amber-600 text-white rounded-lg font-medium text-sm hover:bg-amber-700 transition-colors"
+                          >
+                            Cancel Shipment
+                          </button>
+                          <button
+                            onClick={() => handleDeleteConfirm(shipment.id)}
+                            className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg font-medium text-sm hover:bg-red-700 transition-colors"
+                          >
+                            Delete Permanently
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(null)}
+                            className="px-4 py-2 bg-white text-gray-700 rounded-lg font-medium text-sm border border-gray-300 hover:bg-gray-50 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             );
           })}

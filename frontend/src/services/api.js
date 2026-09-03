@@ -66,8 +66,9 @@ export async function updateShipment(id, data) {
   return response.data;
 }
 
-export async function deleteShipment(id) {
-  const response = await api.delete(`/shipments/${id}`);
+export async function deleteShipment(id, force = false) {
+  const queryParams = force ? '?force=true' : '';
+  const response = await api.delete(`/shipments/${id}${queryParams}`);
   return response.data;
 }
 
