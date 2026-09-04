@@ -26,6 +26,9 @@ import {
   Barcode,
   ShieldAlert,
   CheckCheck,
+  ClipboardCheck,
+  UserCheck,
+  PackageCheck,
   Ban,
   Camera,
   X,
@@ -67,6 +70,7 @@ export default function ReceivingScanDriven() {
 
   // Shipment list state
   const [shipments, setShipments] = useState([]);
+  const [receivingReports, setReceivingReports] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showProductsModal, setShowProductsModal] = useState(null); // Store shipment for modal
@@ -113,9 +117,12 @@ export default function ReceivingScanDriven() {
   const loadShipments = async () => {
     try {
       setLoading(true);
-      const { data } = await api.get('/shipments', {
-        params: { status: 'IN_TRANSIT,ARRIVED,INSPECTING' }
-      });
+      const [{ data }, reportsResponse] = await Promise.all([
+        api.get('/shipments', {
+          params: { status: 'IN_TRANSIT,ARRIVED,INSPECTING,AWAITING_APPROVAL,READY_FOR_QC,QC_READY,READY_FOR_INSPECTION,RECEIVED' }
+        }),
+        api.get('/receiving/reports', { params: { limit: 200 } }).catch(() => ({ data: { data: [] } }))
+      ]);
       
       // Ensure suppliers data is included
       const shipmentsWithSuppliers = (data.shipments || []).map(shipment => ({
@@ -124,6 +131,14 @@ export default function ReceivingScanDriven() {
       }));
       
       setShipments(shipmentsWithSuppliers);
+
+      const latestReports = {};
+      (reportsResponse.data.data || []).forEach(report => {
+        if (!latestReports[report.shipment_id]) {
+          latestReports[report.shipment_id] = report;
+        }
+      });
+      setReceivingReports(latestReports);
     } catch (error) {
       console.error('Error loading shipments:', error);
       showAlert('error', 'Failed to load shipments');
@@ -134,6 +149,20 @@ export default function ReceivingScanDriven() {
 
   const showAlert = (type, message) => {
     setAlert({ type, message });
+  };
+
+  const getManagerStatus = (shipment) => {
+    const report = receivingReports[shipment.id];
+    if (report?.status === 'APPROVED' || shipment.status === 'QC_READY' || shipment.status === 'READY_FOR_QC') {
+      return { label: 'Approved - ready for QC', className: 'bg-green-100 text-green-700', icon: CheckCircle };
+    }
+    if (report?.status === 'REJECTED') {
+      return { label: 'Rejected - review required', className: 'bg-red-100 text-red-700', icon: Ban };
+    }
+    if (report?.status === 'PENDING' || report?.status === 'PENDING_APPROVAL' || shipment.status === 'AWAITING_APPROVAL') {
+      return { label: 'Pending manager approval', className: 'bg-amber-100 text-amber-700', icon: UserCheck };
+    }
+    return { label: 'No report submitted', className: 'bg-slate-100 text-slate-600', icon: Clock };
   };
 
   const startReceiving = async (shipment) => {
@@ -177,7 +206,7 @@ export default function ReceivingScanDriven() {
       setProductCounts(counts);
       setScanHistory([]);
       setActiveSession({
-        id: Date.now(),
+        id: crypto.randomUUID(),
         shipmentId: shipment.id,
         startTime: new Date(),
         status: 'SCANNING'
@@ -1369,6 +1398,38 @@ export default function ReceivingScanDriven() {
           <p className="text-slate-400 text-xs sm:text-sm mt-2 px-4">Shipments will appear here when they're ready for receiving</p>
         </motion.div>
       ) : (
+        <>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+          {[
+            { label: 'Ready to Receive', count: shipments.filter(s => ['IN_TRANSIT', 'ARRIVED'].includes(s.status)).length, icon: Truck, color: 'blue' },
+            { label: 'Inspecting', count: shipments.filter(s => s.status === 'INSPECTING').length, icon: ScanBarcode, color: 'indigo' },
+            { label: 'Waiting Manager', count: shipments.filter(s => s.status === 'AWAITING_APPROVAL' || ['PENDING', 'PENDING_APPROVAL'].includes(receivingReports[s.id]?.status)).length, icon: UserCheck, color: 'amber' },
+            { label: 'Ready for QC', count: shipments.filter(s => ['READY_FOR_QC', 'QC_READY'].includes(s.status) || receivingReports[s.id]?.status === 'APPROVED').length, icon: ClipboardCheck, color: 'emerald' },
+            { label: 'Completed', count: shipments.filter(s => s.status === 'RECEIVED').length, icon: PackageCheck, color: 'green' }
+          ].map(({ label, count, icon: Icon, color }) => {
+            const cardStyles = {
+              blue: 'border-blue-200 text-blue-600 text-blue-400',
+              indigo: 'border-indigo-200 text-indigo-600 text-indigo-400',
+              amber: 'border-amber-200 text-amber-600 text-amber-400',
+              emerald: 'border-emerald-200 text-emerald-600 text-emerald-400',
+              green: 'border-green-200 text-green-600 text-green-400'
+            }[color];
+            const [borderColor, numberColor, iconColor] = cardStyles.split(' ');
+
+            return (
+            <div key={label} className={`bg-white rounded-xl shadow-md border ${borderColor} p-4`}>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs sm:text-sm text-slate-600">{label}</p>
+                  <p className={`text-2xl font-bold ${numberColor}`}>{count}</p>
+                </div>
+                <Icon className={`w-7 h-7 ${iconColor} flex-shrink-0`} />
+              </div>
+            </div>
+            );
+          })}
+        </div>
+
         <div className="grid gap-3 sm:gap-4">
           {filteredShipments.map((shipment, idx) => (
             <motion.div
@@ -1385,6 +1446,16 @@ export default function ReceivingScanDriven() {
                     <span className="px-2 sm:px-4 py-0.5 sm:py-1 rounded-full text-xs font-bold bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md whitespace-nowrap">
                       {shipment.status}
                     </span>
+                    {(() => {
+                      const managerStatus = getManagerStatus(shipment);
+                      const ManagerIcon = managerStatus.icon;
+                      return (
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${managerStatus.className}`}>
+                          <ManagerIcon className="w-3 h-3" />
+                          {managerStatus.label}
+                        </span>
+                      );
+                    })()}
                   </div>
                   
                   {/* Mobile: Stacked Layout */}
@@ -1450,7 +1521,8 @@ export default function ReceivingScanDriven() {
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => startReceiving(shipment)}
-                      className="flex-1 sm:flex-none px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-semibold shadow-md"
+                      disabled={['AWAITING_APPROVAL', 'READY_FOR_QC', 'QC_READY', 'READY_FOR_QC', 'RECEIVED'].includes(shipment.status)}
+                      className="flex-1 sm:flex-none px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed text-white rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-semibold shadow-md"
                     >
                       <PlayCircle className="w-4 h-4" />
                       <span className="hidden sm:inline">Start Receiving</span>
@@ -1462,6 +1534,7 @@ export default function ReceivingScanDriven() {
             </motion.div>
           ))}
         </div>
+        </>
       )}
 
       {/* Products Modal */}

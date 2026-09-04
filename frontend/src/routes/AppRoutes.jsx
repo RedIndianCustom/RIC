@@ -39,6 +39,8 @@ import DiscrepancyReports  from '../pages/dashboard/manager/DiscrepancyReports.j
 import DefectReports       from '../pages/dashboard/manager/DefectReports.jsx';
 import ReturnReports       from '../pages/dashboard/manager/ReturnReports.jsx';
 import EmployeeEfficiency  from '../pages/dashboard/manager/EmployeeEfficiency.jsx';
+import QCInspectionReports  from '../pages/dashboard/manager/QCInspectionReports.jsx';
+import ReceivingReports     from '../pages/dashboard/manager/ReceivingReports.jsx';
 
 // ── Operational Staff ─────────────────────────────────────────
 import ShipmentRegistration from '../pages/dashboard/operational/ShipmentRegistration.jsx';
@@ -157,6 +159,8 @@ export default function AppRoutes() {
             <Route path="/reports/defects"               element={<DefectReports />} />
             <Route path="/reports/returns"               element={<ReturnReports />} />
             <Route path="/reports/employee-efficiency"   element={<EmployeeEfficiency />} />
+            <Route path="/reports/qc-inspection"          element={<QCInspectionReports />} />
+            <Route path="/reports/receiving"              element={<ReceivingReports />} />
           </Route>
 
           {/* ══════════════════════════════════════════════════

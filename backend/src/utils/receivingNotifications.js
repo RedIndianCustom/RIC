@@ -14,70 +14,42 @@ import { supabaseAdmin } from '../config/supabase.js';
 /**
  * Get all manager user IDs
  */
-async function getManagerUserIds() {
+async function getUserIdsForRoles(roleNames) {
   try {
     const { data, error } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .in('role', ['MANAGER', 'ADMIN'])
-      .eq('status', 'ACTIVE');
+      .from('user_roles')
+      .select('user_id, roles!inner(name), users!inner(is_active)')
+      .in('roles.name', roleNames)
+      .eq('users.is_active', true);
 
     if (error) {
       console.error('❌ Error fetching managers:', error);
       return [];
     }
 
-    return data.map(user => user.id);
+    return data.map(userRole => userRole.user_id);
   } catch (err) {
-    console.error('❌ Exception in getManagerUserIds:', err);
+    console.error('❌ Exception in getUserIdsForRoles:', err);
     return [];
   }
+}
+
+async function getManagerUserIds() {
+  return getUserIdsForRoles(['manager', 'admin']);
 }
 
 /**
  * Get warehouse staff user IDs
  */
 async function getWarehouseStaffIds() {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .in('role', ['WAREHOUSE_STAFF', 'ADMIN'])
-      .eq('status', 'ACTIVE');
-
-    if (error) {
-      console.error('❌ Error fetching warehouse staff:', error);
-      return [];
-    }
-
-    return data.map(user => user.id);
-  } catch (err) {
-    console.error('❌ Exception in getWarehouseStaffIds:', err);
-    return [];
-  }
+  return getUserIdsForRoles(['warehouse_staff', 'admin']);
 }
 
 /**
  * Get QC inspector user IDs
  */
 async function getQcInspectorIds() {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('users')
-      .select('id')
-      .in('role', ['QC_INSPECTOR', 'ADMIN'])
-      .eq('status', 'ACTIVE');
-
-    if (error) {
-      console.error('❌ Error fetching QC inspectors:', error);
-      return [];
-    }
-
-    return data.map(user => user.id);
-  } catch (err) {
-    console.error('❌ Exception in getQcInspectorIds:', err);
-    return [];
-  }
+  return getUserIdsForRoles(['qc_inspector', 'admin']);
 }
 
 /**

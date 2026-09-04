@@ -59,6 +59,9 @@ export default function ReceivingApproval() {
   // QC Deadline modal
   const [showDeadlineModal, setShowDeadlineModal] = useState(false);
   const [pendingApprovalRequest, setPendingApprovalRequest] = useState(null);
+  const [receivingHistory, setReceivingHistory] = useState([]);
+  const [showReceivingHistory, setShowReceivingHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     loadApprovalRequests();
@@ -67,11 +70,10 @@ export default function ReceivingApproval() {
   const loadApprovalRequests = async () => {
     try {
       setRefreshing(true);
-      // Fetch shipments that are waiting for manager approval
-      const { data } = await api.get('/warehouse/receiving/pending-approval');
+      const { data } = await api.get('/receiving/pending-approvals');
       
       if (data.success) {
-        setApprovalRequests(data.requests || []);
+        setApprovalRequests(data.data || []);
       }
     } catch (error) {
       console.error('Error loading approval requests:', error);
@@ -85,6 +87,31 @@ export default function ReceivingApproval() {
   const handleViewDetails = (request) => {
     setSelectedRequest(request);
     setShowDetailModal(true);
+  };
+
+  const handleViewHistory = async (request = null) => {
+    try {
+      setHistoryLoading(true);
+      const { data } = await api.get(request ? `/receiving/history/${request.shipment_id}` : '/receiving/reports?limit=100');
+      const history = data.data || [];
+      setReceivingHistory(request ? history : history.map(report => ({
+        report_id: report.id,
+        report_number: report.report_number,
+        submitted_by: report.submitted_by,
+        submitted_at: report.submitted_at || report.created_at,
+        decision: report.status === 'APPROVED' ? 'APPROVED' : report.status === 'REJECTED' ? 'REJECTED' : 'PENDING',
+        total_expected: report.total_expected,
+        total_scanned: report.total_scanned,
+        total_discrepancy: report.total_discrepancy,
+        decision_notes: report.notes
+      })));
+      setShowReceivingHistory(true);
+    } catch (error) {
+      console.error('Error loading receiving history:', error);
+      toast.error('Failed to load receiving history');
+    } finally {
+      setHistoryLoading(false);
+    }
   };
 
   const handleApproveClick = (request) => {
@@ -101,10 +128,9 @@ export default function ReceivingApproval() {
   // Step 1: Manager confirms approval
   const handleConfirmApproval = async () => {
     try {
-      // First, approve the receiving
-      await api.post('/receiving-qc/receiving/complete', {
-        shipment_id: selectedRequest.id,
-        notes: approvalNotes
+      await api.post(`/receiving/approve/${selectedRequest.id}`, {
+        decision: 'APPROVED',
+        decision_notes: approvalNotes
       });
 
       toast.success('Receiving approved!');
@@ -153,8 +179,9 @@ export default function ReceivingApproval() {
     }
 
     try {
-      await api.post(`/warehouse/receiving/${selectedRequest.id}/reject`, {
-        reason: rejectionReason
+      await api.post(`/receiving/approve/${selectedRequest.id}`, {
+        decision: 'REJECTED',
+        decision_notes: rejectionReason
       });
 
       toast.success('Receiving rejected and returned to warehouse staff');
@@ -214,6 +241,15 @@ export default function ReceivingApproval() {
             Review and approve shipment receiving from warehouse staff
           </p>
         </div>
+
+        <button
+          onClick={() => handleViewHistory()}
+          disabled={historyLoading}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300 hover:bg-blue-50 text-blue-700 font-medium transition-colors disabled:opacity-50"
+        >
+          <Clock className="w-4 h-4" />
+          Review History
+        </button>
 
         <button
           onClick={loadApprovalRequests}
@@ -403,6 +439,14 @@ export default function ReceivingApproval() {
                 {/* Actions */}
                 <div className="flex flex-wrap gap-3">
                   <button
+                    onClick={() => handleViewHistory(request)}
+                    disabled={historyLoading}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300 hover:bg-blue-50 text-blue-700 font-medium transition-colors disabled:opacity-50"
+                  >
+                    <Clock className="w-4 h-4" />
+                    Review History
+                  </button>
+                  <button
                     onClick={() => handleViewDetails(request)}
                     className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
                   >
@@ -518,6 +562,60 @@ export default function ReceivingApproval() {
           defaultType="STANDARD"
         />
       )}
+
+      <AnimatePresence>
+        {showReceivingHistory && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setShowReceivingHistory(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={event => event.stopPropagation()}
+              className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 p-5">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Receiving Review History</h2>
+                  <p className="mt-1 text-sm text-slate-500">Previous receiving decisions and QC batch references.</p>
+                </div>
+                <button onClick={() => setShowReceivingHistory(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close history">
+                  <XCircle className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-3 p-5">
+                {receivingHistory.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-500">No receiving review history found.</p>
+                ) : receivingHistory.map(history => (
+                  <div key={`${history.report_id}-${history.decided_at || history.submitted_at}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{history.report_number || 'Receiving report'}</p>
+                        <p className="text-sm text-slate-500">Submitted by {history.submitted_by || 'N/A'} · {history.submitted_at ? new Date(history.submitted_at).toLocaleString() : 'N/A'}</p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${history.decision === 'APPROVED' ? 'bg-green-100 text-green-700' : history.decision === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {history.decision || 'PENDING'}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                      <div className="rounded-lg bg-white p-2"><p className="text-xs text-slate-500">Expected</p><p className="font-bold">{history.total_expected}</p></div>
+                      <div className="rounded-lg bg-white p-2"><p className="text-xs text-slate-500">Scanned</p><p className="font-bold">{history.total_scanned}</p></div>
+                      <div className="rounded-lg bg-white p-2"><p className="text-xs text-slate-500">Difference</p><p className="font-bold text-amber-700">{Math.abs(history.total_discrepancy || 0)}</p></div>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500">Reviewed by {history.approved_by || 'N/A'} · {history.decided_at ? new Date(history.decided_at).toLocaleString() : 'Not reviewed'}{history.qc_batch_number ? ` · QC: ${history.qc_batch_number}` : ''}</p>
+                    {history.decision_notes && <p className="mt-2 rounded-lg bg-white p-2 text-sm text-slate-700">{history.decision_notes}</p>}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

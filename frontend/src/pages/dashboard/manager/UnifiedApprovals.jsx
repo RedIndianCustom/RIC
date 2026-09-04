@@ -63,6 +63,9 @@ export default function UnifiedApprovals() {
 
   // Discrepancy Approvals
   const [discrepancies, setDiscrepancies] = useState([]);
+  const [discrepancyHistory, setDiscrepancyHistory] = useState([]);
+  const [showDiscrepancyHistory, setShowDiscrepancyHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Stats
   const [stats, setStats] = useState({
@@ -102,11 +105,8 @@ export default function UnifiedApprovals() {
 
   const loadReceivingApprovals = async () => {
     try {
-      // TODO: Implement receiving approval endpoint when ready
-      // For now, just set empty array to prevent errors
-      setReceivingRequests([]);
-      // const { data } = await api.get('/receiving-qc/receiving-reports/pending');
-      // setReceivingRequests(data.reports || []);
+      const { data } = await api.get('/receiving/pending-approvals');
+      setReceivingRequests(data.data || []);
     } catch (error) {
       console.error('Error loading receiving approvals:', error);
       setReceivingRequests([]);
@@ -124,28 +124,49 @@ export default function UnifiedApprovals() {
 
   const loadDiscrepancyApprovals = async () => {
     try {
-      // TODO: Implement discrepancy approval endpoint when ready
-      // For now, just set empty array to prevent errors
-      setDiscrepancies([]);
-      // const { data } = await api.get('/discrepancies/pending');
-      // setDiscrepancies(data.discrepancies || []);
+      const { data } = await api.get('/receiving-qc/discrepancies/pending');
+      setDiscrepancies(data.data || []);
     } catch (error) {
       console.error('Error loading discrepancy approvals:', error);
       setDiscrepancies([]);
     }
   };
 
+  const loadDiscrepancyHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      const { data } = await api.get('/receiving-qc/discrepancies/history');
+      setDiscrepancyHistory(data.data || []);
+      setShowDiscrepancyHistory(true);
+    } catch (error) {
+      console.error('Error loading discrepancy history:', error);
+      toast.error('Failed to load discrepancy history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleViewDetails = (request) => {
+    setSelectedReceiving(request);
+    setShowReceivingDetail(true);
+  };
+
   const loadStats = async () => {
     try {
-      // Only load QC stats for now (the only working endpoint)
-      const qc = await api.get('/receiving-qc/qc-inspection/completed/all');
+      const [receiving, qc, discrepancyResponse] = await Promise.all([
+        api.get('/receiving/pending-approvals'),
+        api.get('/receiving-qc/qc-inspection/completed/all'),
+        api.get('/receiving-qc/discrepancies/pending').catch(() => ({ data: { data: [] } }))
+      ]);
+      const receivingCount = receiving.data?.data?.length || 0;
       const qcCount = qc.data?.data?.length || 0;
+      const discrepancyCount = discrepancyResponse.data?.data?.length || 0;
 
       setStats({
-        receivingPending: 0, // TODO: Implement when endpoint ready
+        receivingPending: receivingCount,
         qcPending: qcCount,
-        discrepanciesPending: 0, // TODO: Implement when endpoint ready
-        totalPending: qcCount
+        discrepanciesPending: discrepancyCount,
+        totalPending: receivingCount + qcCount + discrepancyCount
       });
     } catch (error) {
       console.error('Error loading stats:', error);
@@ -164,11 +185,12 @@ export default function UnifiedApprovals() {
 
   const handleApproveReceiving = async (request) => {
     try {
-      // Approve receiving
-      await api.post('/receiving-qc/receiving/complete', {
-        shipment_id: request.id,
-        notes: approvalNotes
-      });
+      if (request.status !== 'APPROVED') {
+        await api.post(`/receiving/approve/${request.id}`, {
+          decision: 'APPROVED',
+          decision_notes: approvalNotes
+        });
+      }
 
       toast.success('Receiving approved!');
       setApprovalNotes('');
@@ -187,7 +209,7 @@ export default function UnifiedApprovals() {
     try {
       // Create QC inspection with deadline
       const { data } = await api.post('/receiving-qc/qc-inspection/create', {
-        shipment_id: pendingApprovalRequest.id,
+        shipment_id: pendingApprovalRequest.shipment_id,
         deadline_type: deadlineConfig.type,
         custom_deadline_days: deadlineConfig.customDays,
         deadline_reason: deadlineConfig.reason
@@ -207,7 +229,10 @@ export default function UnifiedApprovals() {
 
   const handleRejectReceiving = async (request, reason) => {
     try {
-      await api.post(`/warehouse/receiving/${request.id}/reject`, { reason });
+      await api.post(`/receiving/approve/${request.id}`, {
+        decision: 'REJECTED',
+        decision_notes: reason
+      });
       toast.success('Receiving rejected');
       loadAllApprovals();
     } catch (error) {
@@ -233,6 +258,23 @@ export default function UnifiedApprovals() {
     } catch (error) {
       console.error('Error approving QC:', error);
       toast.error('Failed to approve QC inspection');
+    }
+  };
+
+  const handleReviewDiscrepancy = async (discrepancy, decision) => {
+    try {
+      await api.put(`/receiving-qc/discrepancies/${discrepancy.id}/approve`, {
+        decision,
+        resolution_action: decision === 'APPROVED' ? 'ADJUST_INVENTORY' : 'RETURN_TO_RECEIVING',
+        notes: approvalNotes
+      });
+
+      toast.success(`Discrepancy ${decision === 'APPROVED' ? 'approved' : 'rejected'}!`);
+      setApprovalNotes('');
+      await loadAllApprovals();
+    } catch (error) {
+      console.error('Error reviewing discrepancy:', error);
+      toast.error('Failed to review discrepancy');
     }
   };
 
@@ -263,6 +305,12 @@ export default function UnifiedApprovals() {
       color: 'amber'
     }
   ];
+
+  const tabStyles = {
+    blue: 'from-blue-50 to-blue-100 border-blue-200 text-blue-600 text-blue-900 text-blue-400',
+    green: 'from-green-50 to-green-100 border-green-200 text-green-600 text-green-900 text-green-400',
+    amber: 'from-amber-50 to-amber-100 border-amber-200 text-amber-600 text-amber-900 text-amber-400'
+  };
 
   const getDiscrepancyStatus = (expected, received) => {
     const diff = received - expected;
@@ -330,17 +378,17 @@ export default function UnifiedApprovals() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.1 }}
-            className={`bg-gradient-to-br from-${tab.color}-50 to-${tab.color}-100 rounded-xl p-6 border border-${tab.color}-200 cursor-pointer hover:shadow-lg transition-shadow`}
+            className={`bg-gradient-to-br rounded-xl p-6 border cursor-pointer hover:shadow-lg transition-shadow ${tabStyles[tab.color].split(' ').slice(0, 3).join(' ')}`}
             onClick={() => setActiveTab(tab.id)}
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className={`text-sm font-medium text-${tab.color}-600`}>{tab.label}</p>
-                <p className={`text-3xl font-bold text-${tab.color}-900 mt-1`}>
+                <p className={`text-sm font-medium ${tabStyles[tab.color].split(' ')[3]}`}>{tab.label}</p>
+                <p className={`text-3xl font-bold ${tabStyles[tab.color].split(' ')[4]} mt-1`}>
                   {tab.count}
                 </p>
               </div>
-              <tab.icon className={`w-12 h-12 text-${tab.color}-400 opacity-50`} />
+              <tab.icon className={`w-12 h-12 ${tabStyles[tab.color].split(' ')[5]} opacity-50`} />
             </div>
           </motion.div>
         ))}
@@ -444,7 +492,12 @@ export default function UnifiedApprovals() {
                             </div>
                           </div>
                           
-                          {request.has_discrepancies && (
+                          {request.needs_qc_setup ? (
+                            <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
+                              <ClipboardCheck className="w-3 h-3" />
+                              QC setup required
+                            </span>
+                          ) : request.has_discrepancies && (
                             <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-200 text-amber-800 flex items-center gap-1">
                               <AlertTriangle className="w-3 h-3" />
                               Has Discrepancies
@@ -474,7 +527,7 @@ export default function UnifiedApprovals() {
                             className="flex items-center gap-2 px-6 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors ml-auto"
                           >
                             <ThumbsUp className="w-4 h-4" />
-                            Approve & Set QC Deadline
+                            {request.needs_qc_setup ? 'Set QC Deadline' : 'Approve & Set QC Deadline'}
                           </button>
                         </div>
                       </div>
@@ -581,19 +634,290 @@ export default function UnifiedApprovals() {
                 exit={{ opacity: 0, x: -20 }}
                 className="space-y-4"
               >
+                <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">Discrepancy review trail</p>
+                    <p className="text-xs text-slate-500">Find previously approved or rejected products and manager decisions.</p>
+                  </div>
+                  <button
+                    onClick={loadDiscrepancyHistory}
+                    disabled={historyLoading}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    <FileCheck className="h-4 w-4" />
+                    {historyLoading ? 'Loading history...' : 'View review history'}
+                  </button>
+                </div>
+
                 {discrepancies.length === 0 ? (
                   <div className="text-center py-12">
                     <AlertTriangle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                     <p className="text-slate-600">No pending discrepancy approvals</p>
                   </div>
                 ) : (
-                  <p className="text-slate-600">Discrepancy approvals coming soon...</p>
+                  discrepancies
+                    .filter(discrepancy => {
+                      const searchableText = [
+                        discrepancy.product_name,
+                        discrepancy.product?.brand,
+                        discrepancy.product?.model,
+                        discrepancy.product?.sku,
+                        discrepancy.product_size,
+                        discrepancy.shipment_number,
+                        discrepancy.shipment_id,
+                        discrepancy.discrepancy_type,
+                        discrepancy.reason,
+                        discrepancy.reported_by_name
+                      ].filter(Boolean).join(' ').toLowerCase();
+                      return searchableText.includes(searchQuery.toLowerCase());
+                    })
+                    .map(discrepancy => {
+                      const difference = discrepancy.difference ?? (
+                        (discrepancy.expected_quantity || 0) - (discrepancy.received_quantity || 0)
+                      );
+                      const productName = discrepancy.product_name || [
+                        discrepancy.product?.brand,
+                        discrepancy.product?.model,
+                        discrepancy.product?.dimensions
+                      ].filter(Boolean).join(' ') || 'Unknown product';
+
+                      return (
+                        <div key={discrepancy.id} className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Package className="w-5 h-5 shrink-0 text-amber-700" />
+                                <p className="font-semibold text-slate-900">{productName}</p>
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
+                                <span>Shipment: {discrepancy.shipment_number || discrepancy.shipment_id}</span>
+                                <span>Size: {discrepancy.product_size || 'N/A'}</span>
+                                {(discrepancy.sku || discrepancy.product?.sku) && (
+                                  <span>SKU: {discrepancy.sku || discrepancy.product.sku}</span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-amber-200 px-2 py-1 text-xs font-bold text-amber-800">
+                              {discrepancy.discrepancy_type || 'DISCREPANCY'}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                            <div className="rounded bg-white p-2"><p className="text-xs text-slate-500">Expected</p><p className="font-bold">{discrepancy.expected_quantity}</p></div>
+                            <div className="rounded bg-white p-2"><p className="text-xs text-slate-500">Received</p><p className="font-bold">{discrepancy.received_quantity}</p></div>
+                            <div className="rounded bg-white p-2"><p className="text-xs text-slate-500">Difference</p><p className="font-bold text-amber-700">{Math.abs(difference)}</p></div>
+                          </div>
+
+                          <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                            <div className="rounded bg-white/70 p-2">
+                              <span className="text-xs text-slate-500">Reported by</span>
+                              <p className="font-medium text-slate-800">{discrepancy.reported_by_name || discrepancy.reported_by || 'N/A'}</p>
+                            </div>
+                            <div className="rounded bg-white/70 p-2">
+                              <span className="text-xs text-slate-500">Reported at</span>
+                              <p className="font-medium text-slate-800">
+                                {discrepancy.reported_at ? new Date(discrepancy.reported_at).toLocaleString() : 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {(discrepancy.reason || discrepancy.financial_impact != null) && (
+                            <div className="mt-3 border-t border-amber-200 pt-3 text-sm text-slate-700">
+                              {discrepancy.reason && <p><span className="font-semibold">Reason:</span> {discrepancy.reason}</p>}
+                              {discrepancy.financial_impact != null && (
+                                <p className="mt-1"><span className="font-semibold">Financial impact:</span> {Number(discrepancy.financial_impact).toLocaleString()}</p>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="mt-4 flex gap-3 border-t border-amber-200 pt-3">
+                            <button
+                              onClick={() => handleReviewDiscrepancy(discrepancy, 'REJECTED')}
+                              className="flex-1 rounded-lg border border-red-300 px-4 py-2 font-medium text-red-700 transition-colors hover:bg-red-50"
+                            >
+                              Reject
+                            </button>
+                            <button
+                              onClick={() => handleReviewDiscrepancy(discrepancy, 'APPROVED')}
+                              className="flex-1 rounded-lg bg-green-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-green-700"
+                            >
+                              Approve
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+
+                {showDiscrepancyHistory && (
+                  <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold text-slate-900">Discrepancy history</h3>
+                        <p className="text-xs text-slate-500">Approved and rejected records remain available for audit.</p>
+                      </div>
+                      <button
+                        onClick={() => setShowDiscrepancyHistory(false)}
+                        className="text-sm font-medium text-slate-500 hover:text-slate-900"
+                      >
+                        Hide
+                      </button>
+                    </div>
+
+                    {discrepancyHistory.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-slate-500">No discrepancy history found.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {discrepancyHistory.map(historyItem => {
+                          const historyProduct = historyItem.product_name || [
+                            historyItem.product?.brand,
+                            historyItem.product?.model,
+                            historyItem.product?.dimensions
+                          ].filter(Boolean).join(' ') || 'Unknown product';
+                          const isApproved = historyItem.manager_decision === 'APPROVED';
+
+                          return (
+                            <div key={historyItem.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                  <p className="font-semibold text-slate-900">{historyProduct}</p>
+                                  <p className="text-sm text-slate-600">
+                                    Shipment: {historyItem.shipment?.shipment_number || historyItem.shipment_number || historyItem.shipment_id} · Size: {historyItem.product_size || 'N/A'}
+                                  </p>
+                                </div>
+                                <span className={`rounded-full px-2 py-1 text-xs font-bold ${isApproved ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                  {historyItem.manager_decision || historyItem.status || 'PENDING'}
+                                </span>
+                              </div>
+                              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+                                <div className="rounded bg-white p-2"><p className="text-slate-500">Expected</p><p className="font-bold">{historyItem.expected_quantity}</p></div>
+                                <div className="rounded bg-white p-2"><p className="text-slate-500">Received</p><p className="font-bold">{historyItem.received_quantity}</p></div>
+                                <div className="rounded bg-white p-2"><p className="text-slate-500">Difference</p><p className="font-bold">{Math.abs(historyItem.difference || 0)}</p></div>
+                              </div>
+                              <p className="mt-2 text-xs text-slate-500">
+                                Reported by: {historyItem.reported_by || 'N/A'} · Reviewed by: {historyItem.manager_reviewed_by || 'N/A'} · {historyItem.manager_reviewed_at ? new Date(historyItem.manager_reviewed_at).toLocaleString() : 'Not reviewed'}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 )}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showReceivingDetail && selectedReceiving && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setShowReceivingDetail(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(event) => event.stopPropagation()}
+              className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+            >
+              <div className="flex items-start justify-between border-b border-slate-200 p-5">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-900">Receiving Report</h2>
+                    <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">Pending review</span>
+                  </div>
+                  <p className="text-sm text-slate-500 mt-1">{selectedReceiving.report_number} • Submitted {new Date(selectedReceiving.received_at).toLocaleString()}</p>
+                </div>
+                <button
+                  onClick={() => setShowReceivingDetail(false)}
+                  className="p-2 rounded-lg hover:bg-slate-100"
+                  aria-label="Close receiving report"
+                >
+                  <XCircle className="w-5 h-5 text-slate-500" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className={`flex items-start gap-3 rounded-lg border p-3 ${selectedReceiving.total_discrepancy === 0 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+                  {selectedReceiving.total_discrepancy === 0 ? <CheckCircle className="w-5 h-5 mt-0.5" /> : <AlertTriangle className="w-5 h-5 mt-0.5" />}
+                  <div>
+                    <p className="font-semibold">{selectedReceiving.total_discrepancy === 0 ? 'Counts match' : 'Discrepancy requires review'}</p>
+                    <p className="text-sm mt-0.5">{selectedReceiving.total_discrepancy === 0 ? 'All expected items were received.' : `${Math.abs(selectedReceiving.total_discrepancy)} item${Math.abs(selectedReceiving.total_discrepancy) === 1 ? '' : 's'} ${selectedReceiving.total_discrepancy > 0 ? 'short' : 'over'}.`}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <p className="text-slate-500">Shipment</p>
+                    <p className="font-semibold text-slate-900">{selectedReceiving.shipment_number}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <p className="text-slate-500">Submitted by</p>
+                    <p className="font-semibold text-slate-900">{selectedReceiving.received_by?.full_name || 'N/A'}</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-blue-600">Expected</p>
+                    <p className="text-xl font-bold text-blue-900">{selectedReceiving.total_expected}</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3 text-center">
+                    <p className="text-xs text-green-600">Scanned</p>
+                    <p className="text-xl font-bold text-green-900">{selectedReceiving.total_scanned}</p>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="font-medium text-slate-700">Overall receiving progress</span>
+                    <span className="font-bold text-slate-900">{selectedReceiving.total_expected ? Math.round((selectedReceiving.total_scanned / selectedReceiving.total_expected) * 100) : 0}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.min(100, selectedReceiving.total_expected ? (selectedReceiving.total_scanned / selectedReceiving.total_expected) * 100 : 0)}%` }} />
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-slate-900 mb-2">Items by Size</h3>
+                  <div className="space-y-2">
+                    {(selectedReceiving.items || []).map(item => (
+                      <div key={item.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3 text-sm">
+                        <span className="font-medium text-slate-900">{item.product?.name || 'Unknown Product'} ({item.product_size || 'N/A'})</span>
+                        <span className="text-slate-600">{item.received_quantity} / {item.expected_quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {selectedReceiving.notes && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900">
+                    <strong>Notes:</strong> {selectedReceiving.notes}
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2 border-t border-slate-200">
+                  <button
+                    onClick={() => { setShowReceivingDetail(false); handleRejectReceiving(selectedReceiving, 'Rejected by manager'); }}
+                    className="flex-1 px-4 py-2 rounded-lg border border-red-300 hover:bg-red-50 text-red-700 font-medium"
+                  >
+                    Reject Report
+                  </button>
+                  <button
+                    onClick={() => { setShowReceivingDetail(false); handleApproveReceiving(selectedReceiving); }}
+                    className="flex-1 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold"
+                  >
+                    Approve & Set QC
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* QC Deadline Selector Modal */}
       {showDeadlineModal && pendingApprovalRequest && (

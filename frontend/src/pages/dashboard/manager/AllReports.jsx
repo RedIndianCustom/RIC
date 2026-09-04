@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
@@ -11,7 +11,8 @@ import {
   DollarSign,
   Users,
   Activity,
-  ArrowRight
+  ArrowRight,
+  ClipboardCheck
 } from 'lucide-react';
 import api from '../../../services/api';
 
@@ -118,6 +119,10 @@ function ReportCard({ report }) {
 
 export default function AllReports() {
   const [loading, setLoading] = useState(true);
+  const [reportPeriod, setReportPeriod] = useState('month');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [reportData, setReportData] = useState({ discrepancies: [], inspections: [] });
   const [stats, setStats] = useState({
     totalReports: 8,
     revenueMTD: 0,
@@ -158,9 +163,18 @@ export default function AllReports() {
       title: 'Discrepancy Reports',
       description: 'Review quantity mismatches and counting discrepancies',
       icon: FileWarning,
-      path: '/reports/discrepancy',
+      path: '/reports/discrepancies',
       color: 'red',
       stats: { value: '—', label: 'Open Issues' }
+    },
+    {
+      id: 'qc-inspection',
+      title: 'QC Inspection Reports',
+      description: 'Review completed inspections, quality rates, and manager decisions',
+      icon: ClipboardCheck,
+      path: '/reports/qc-inspection',
+      color: 'teal',
+      stats: { value: '—', label: 'Completed Inspections' }
     },
     {
       id: 'defects',
@@ -208,25 +222,13 @@ export default function AllReports() {
     try {
       setLoading(true);
 
-      // Note: These endpoints are placeholders and will be implemented when 
-      // inventory, sales, and other features are built
-      
-      // In the future, you would fetch real data like this:
-      // const { data } = await api.get('/reports/summary');
-      // setStats({
-      //   totalReports: 8,
-      //   revenueMTD: data.revenue || 0,
-      //   openIssues: data.openIssues || 0,
-      //   activitiesToday: data.activities || 0
-      // });
-
-      // For now, just set defaults
-      setStats({
-        totalReports: 8,
-        revenueMTD: 0,
-        openIssues: 0,
-        activitiesToday: 0
-      });
+      const [discrepancyResponse, qcResponse] = await Promise.all([
+        api.get('/receiving-qc/discrepancies/history'),
+        api.get('/receiving-qc/qc-inspection/reports')
+      ]);
+      const discrepancies = discrepancyResponse.data?.data || [];
+      const inspections = qcResponse.data?.data || [];
+      setReportData({ discrepancies, inspections });
 
     } catch (err) {
       console.warn('Reports data not available:', err);
@@ -234,6 +236,71 @@ export default function AllReports() {
       setLoading(false);
     }
   };
+
+  const dateRange = useMemo(() => {
+    const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+
+    if (reportPeriod === 'today') {
+      start.setHours(0, 0, 0, 0);
+    } else if (reportPeriod === 'week') {
+      const day = start.getDay();
+      start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
+      start.setHours(0, 0, 0, 0);
+    } else if (reportPeriod === 'month') {
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+    } else if (reportPeriod === 'year') {
+      start.setMonth(0, 1);
+      start.setHours(0, 0, 0, 0);
+    } else if (reportPeriod === 'custom' && customStart && customEnd) {
+      const customStartDate = new Date(`${customStart}T00:00:00`);
+      const customEndDate = new Date(`${customEnd}T23:59:59.999`);
+      return { start: customStartDate, end: customEndDate };
+    }
+
+    return { start, end };
+  }, [reportPeriod, customStart, customEnd]);
+
+  const filteredDiscrepancies = useMemo(() => reportData.discrepancies.filter(item => {
+    const date = new Date(item.reported_at);
+    return !Number.isNaN(date.getTime()) && date >= dateRange.start && date <= dateRange.end;
+  }), [reportData.discrepancies, dateRange]);
+
+  const filteredInspections = useMemo(() => reportData.inspections.filter(item => {
+    const date = new Date(item.inspection_end_date || item.created_at);
+    return !Number.isNaN(date.getTime()) && date >= dateRange.start && date <= dateRange.end;
+  }), [reportData.inspections, dateRange]);
+
+  useEffect(() => {
+    const pendingIssues = filteredDiscrepancies.filter(item => (item.manager_decision || 'PENDING') === 'PENDING').length;
+    setStats(prev => ({
+      ...prev,
+      totalReports: filteredDiscrepancies.length + filteredInspections.length,
+      openIssues: pendingIssues
+    }));
+    setReports(prev => prev.map(report => {
+      if (report.id === 'discrepancy') {
+        return { ...report, stats: { value: pendingIssues, label: 'Open Issues' } };
+      }
+      if (report.id === 'qc-inspection') {
+        return { ...report, stats: { value: filteredInspections.length, label: 'Completed Inspections' } };
+      }
+      return report;
+    }));
+  }, [filteredDiscrepancies, filteredInspections]);
+
+  const periodLabel = reportPeriod === 'custom'
+    ? `${customStart || 'Start'} to ${customEnd || 'End'}`
+    : reportPeriod === 'today'
+      ? 'Today'
+      : reportPeriod === 'week'
+        ? 'This week'
+        : reportPeriod === 'year'
+          ? 'This year'
+          : 'This month';
 
   return (
     <motion.div
@@ -250,6 +317,35 @@ export default function AllReports() {
         </p>
       </motion.div>
 
+      <motion.div variants={fadeIn} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Reporting period</p>
+            <p className="mt-0.5 text-xs text-slate-500">Track report activity by day, week, month, year, or a custom range.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={reportPeriod} onChange={event => setReportPeriod(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+              <option value="today">Today</option>
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="year">This year</option>
+              <option value="custom">Custom range</option>
+            </select>
+            {reportPeriod === 'custom' && (
+              <>
+                <input type="date" value={customStart} onChange={event => setCustomStart(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500" aria-label="Report start date" />
+                <span className="text-sm text-slate-400">to</span>
+                <input type="date" value={customEnd} onChange={event => setCustomEnd(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500" aria-label="Report end date" />
+              </>
+            )}
+            <button onClick={loadReportsData} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+              <Activity className="h-4 w-4" /> Refresh data
+            </button>
+          </div>
+        </div>
+        <p className="mt-3 text-xs font-medium text-blue-700">Showing: {periodLabel} · {filteredDiscrepancies.length + filteredInspections.length} tracked events</p>
+      </motion.div>
+
       {/* Quick Stats */}
       <motion.div variants={fadeIn} className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -258,7 +354,7 @@ export default function AllReports() {
               <BarChart3 className="text-blue-600" size={20} />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Total Reports</p>
+              <p className="text-sm text-slate-500">Tracked Reports</p>
               <p className="text-2xl font-bold text-slate-900">{stats.totalReports}</p>
             </div>
           </div>
@@ -282,7 +378,7 @@ export default function AllReports() {
               <AlertTriangle className="text-amber-600" size={20} />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Open Issues</p>
+              <p className="text-sm text-slate-500">Open Issues · {periodLabel}</p>
               <p className="text-2xl font-bold text-slate-900">
                 {stats.openIssues > 0 ? stats.openIssues : '—'}
               </p>

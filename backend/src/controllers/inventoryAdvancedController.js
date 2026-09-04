@@ -25,6 +25,20 @@ export async function getLowStockAlerts(req, res) {
     if (error) {
       console.error('Failed to fetch low stock alerts:', error);
       console.error('Error details:', JSON.stringify(error, null, 2));
+
+      // Low-stock alerts are an optional advanced feature. Older installations
+      // may not have the migration applied yet; inventory itself can still load.
+      if (['PGRST202', 'PGRST205', '42P01'].includes(error.code)) {
+        return res.json({
+          success: true,
+          alerts: [],
+          total: 0,
+          critical: 0,
+          low: 0,
+          configured: false
+        });
+      }
+
       return res.status(500).json({
         success: false,
         error: 'Failed to fetch low stock alerts',

@@ -41,6 +41,9 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
   
   const html5QrCodeRef = useRef(null);
   const videoTrackRef = useRef(null);
+  const cameraActiveRef = useRef(false);
+  const scanHandledRef = useRef(false);
+  const beepRef = useRef(null);
   const scannerRegionId = 'barcode-scanner-region';
 
   useEffect(() => {
@@ -107,23 +110,26 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
         cameraId,
         config,
         (decodedText, decodedResult) => {
+          if (scanHandledRef.current) return;
+          scanHandledRef.current = true;
+
           // Stop camera immediately to prevent duplicate scans
-          stopCamera();
-          
-          // Play feedback
-          playScanSound();
-          triggerVibration();
-          
-          // Extract barcode from URL if needed
-          let barcode = decodedText;
-          if (decodedText.includes('/trace/')) {
-            const parts = decodedText.split('/trace/');
-            if (parts[1]) {
-              barcode = parts[1].split('?')[0]; // Remove query params
+          stopCamera().finally(() => {
+            // Play feedback once, after the camera has stopped.
+            playScanSound();
+            triggerVibration();
+
+            // Extract barcode from URL if needed
+            let barcode = decodedText;
+            if (decodedText.includes('/trace/')) {
+              const parts = decodedText.split('/trace/');
+              if (parts[1]) {
+                barcode = parts[1].split('?')[0]; // Remove query params
+              }
             }
-          }
-          
-          onScan?.(barcode);
+
+            onScan?.(barcode);
+          });
         },
         (errorMessage) => {
           // Scanning errors (no code detected) - ignore these
@@ -131,6 +137,8 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
       );
 
       setCameraActive(true);
+      cameraActiveRef.current = true;
+      scanHandledRef.current = false;
       
       // Get video track for flash control
       setTimeout(() => {
@@ -150,13 +158,14 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
   };
 
   const stopCamera = async () => {
-    if (html5QrCodeRef.current && cameraActive) {
+    if (html5QrCodeRef.current && cameraActiveRef.current) {
       try {
         await html5QrCodeRef.current.stop();
         html5QrCodeRef.current.clear();
         html5QrCodeRef.current = null;
         videoTrackRef.current = null;
         setCameraActive(false);
+        cameraActiveRef.current = false;
       } catch (err) {
         console.error('Error stopping camera:', err);
       }
@@ -200,6 +209,13 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
       }
       
       const audioContext = window.scannerAudioContext;
+
+      if (beepRef.current) {
+        beepRef.current.oscillator.stop();
+        beepRef.current.oscillator.disconnect();
+        beepRef.current.gainNode.disconnect();
+        beepRef.current = null;
+      }
       
       // Resume context if suspended (required by some browsers)
       if (audioContext.state === 'suspended') {
@@ -215,15 +231,20 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
       gainNode.connect(audioContext.destination);
       
       oscillator.frequency.value = 800;
-      gainNode.gain.value = 0.3;
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.1);
       
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + 0.1);
+      beepRef.current = { oscillator, gainNode };
       
       // Clean up after sound finishes
       setTimeout(() => {
         oscillator.disconnect();
         gainNode.disconnect();
+        if (beepRef.current?.oscillator === oscillator) {
+          beepRef.current = null;
+        }
       }, 150);
     } catch (err) {
       // Silently fail - audio feedback is not critical
@@ -256,15 +277,34 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
         @media (max-width: 768px) {
           .barcode-camera-container {
             max-width: 100%;
-            aspect-ratio: 16 / 9;
-            min-height: 300px;
+            aspect-ratio: 4 / 3;
+            min-height: 0;
           }
         }
         
         @media (max-width: 640px) {
           .barcode-camera-container {
             max-width: 100%;
-            min-height: 250px;
+            aspect-ratio: 4 / 3;
+          }
+
+          .barcode-scanner-controls {
+            min-width: 0;
+          }
+
+          .barcode-scanner-status {
+            font-size: 0.65rem;
+            white-space: nowrap;
+          }
+
+          .barcode-scanner-instruction {
+            bottom: 0.75rem;
+            padding: 0.35rem 0.65rem;
+            max-width: calc(100% - 1rem);
+          }
+
+          .barcode-scanner-instruction p {
+            font-size: 0.65rem;
           }
         }
 
@@ -303,8 +343,8 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
 
       {/* Camera Controls Bar - Mobile Responsive */}
       {cameraActive && (
-        <div className="flex items-center justify-between p-2 sm:p-3 bg-slate-800 rounded-lg">
-          <div className="flex items-center gap-1 sm:gap-2">
+        <div className="barcode-scanner-controls flex min-w-0 items-center justify-between gap-2 rounded-lg bg-slate-800 p-2 sm:p-3">
+          <div className="flex min-w-0 items-center gap-1 sm:gap-2">
             <button
               onClick={toggleFlash}
               className={`p-1.5 sm:p-2 rounded-lg transition-colors ${
@@ -351,7 +391,7 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
             </button>
           </div>
 
-          <div className="text-white text-xs sm:text-sm font-medium flex items-center gap-1 sm:gap-2">
+          <div className="barcode-scanner-status flex items-center gap-1 text-xs font-medium text-white sm:gap-2 sm:text-sm">
             <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
             Camera Active
           </div>
@@ -377,7 +417,23 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
             
             {/* Central Scanning Frame */}
             <div className="absolute inset-0 flex items-center justify-center">
-              <div className="relative" style={{ width: '75%', aspectRatio: '1.5' }}>
+              <div className="relative" style={{ width: '80%', aspectRatio: '1.2' }}>
+                {/* Square QR target aligned with the decoder qrbox */}
+                <div className="absolute left-1/2 top-1/2 z-10 aspect-square w-[min(60%,310px)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-dashed border-white/45 bg-white/10 shadow-[0_0_18px_rgba(255,255,255,0.55)]">
+                  <div className="absolute left-0 top-0 h-1 w-1/5 rounded-r-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <div className="absolute left-0 top-0 h-1/5 w-1 rounded-b-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <div className="absolute right-0 top-0 h-1 w-1/5 rounded-l-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <div className="absolute right-0 top-0 h-1/5 w-1 rounded-b-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <div className="absolute bottom-0 left-0 h-1 w-1/5 rounded-r-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <div className="absolute bottom-0 left-0 h-1/5 w-1 rounded-t-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <div className="absolute bottom-0 right-0 h-1 w-1/5 rounded-l-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <div className="absolute bottom-0 right-0 h-1/5 w-1 rounded-t-full bg-white/85 shadow-[0_0_10px_rgba(255,255,255,0.9)]" />
+                  <motion.div
+                    animate={{ top: ['2%', '98%', '2%'] }}
+                    transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+                    className="absolute left-1 right-1 h-0.5 bg-yellow-400 shadow-[0_0_12px_rgba(250,204,21,1),0_0_24px_rgba(250,204,21,0.8)]"
+                  />
+                </div>
                 
                 {/* Corner Brackets - Top Left */}
                 <motion.div
@@ -441,7 +497,7 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
                     repeat: Infinity,
                     ease: "easeInOut"
                   }}
-                  className="absolute left-0 right-0"
+                  className="absolute left-0 right-0 hidden"
                   style={{ height: '4px' }}
                 >
                   <div className="w-full h-full bg-gradient-to-r from-transparent via-yellow-400 to-transparent shadow-[0_0_30px_rgba(234,179,8,1),0_0_60px_rgba(234,179,8,0.6)]" />
@@ -457,7 +513,7 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
                       opacity: [0.4, 0.8, 0.4]
                     }}
                     transition={{ duration: 2, repeat: Infinity }}
-                    className="w-20 h-px bg-yellow-400/80"
+                    className="hidden w-20 h-px bg-yellow-400/80"
                   />
                   <motion.div
                     animate={{
@@ -465,17 +521,17 @@ export default function BarcodeScanner({ onScan, onError, autoStart = true }) {
                       opacity: [0.4, 0.8, 0.4]
                     }}
                     transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
-                    className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 h-20 w-px bg-yellow-400/80"
+                    className="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 h-20 w-px bg-yellow-400/80"
                   />
                 </div>
                 
                 {/* Scanning Area Indicator */}
-                <div className="absolute inset-0 border-2 border-dashed border-yellow-400/30 rounded-lg" />
+                <div className="hidden absolute inset-0 border-2 border-dashed border-yellow-400/30 rounded-lg" />
               </div>
             </div>
             
             {/* Instruction Text */}
-            <div className="absolute bottom-6 left-0 right-0 text-center">
+            <div className="barcode-scanner-instruction absolute bottom-6 left-0 right-0 text-center">
               <motion.div
                 animate={{
                   opacity: [0.7, 1, 0.7],

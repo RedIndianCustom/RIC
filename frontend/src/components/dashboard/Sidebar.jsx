@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
+  ClipboardList,
   PackageCheck,
   Boxes,
   Warehouse,
@@ -35,7 +36,6 @@ import {
   Search,
   QrCode,
   Printer,
-  ClipboardList,
   FileCheck,
   ShoppingBag,
 } from 'lucide-react';
@@ -246,6 +246,20 @@ const NAVIGATION = [
         label: 'Discrepancy Reports',
         icon: FileWarning,
         path: '/reports/discrepancies',
+        roles: ['manager', 'admin'],
+      },
+      {
+        id: 'receiving-reports',
+        label: 'Receiving Reports',
+        icon: ClipboardList,
+        path: '/reports/receiving',
+        roles: ['manager', 'admin'],
+      },
+      {
+        id: 'qc-inspection-reports',
+        label: 'QC Inspection Reports',
+        icon: ClipboardCheck,
+        path: '/reports/qc-inspection',
         roles: ['manager', 'admin'],
       },
       {

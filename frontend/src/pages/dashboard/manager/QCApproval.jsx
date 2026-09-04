@@ -17,6 +17,9 @@ export default function QCApproval() {
   const [managerNotes, setManagerNotes] = useState('');
   const [itemOverrides, setItemOverrides] = useState([]);
   const [viewingPhotos, setViewingPhotos] = useState(null);
+  const [inspectionHistory, setInspectionHistory] = useState([]);
+  const [showInspectionHistory, setShowInspectionHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     loadCompletedInspections();
@@ -35,7 +38,7 @@ export default function QCApproval() {
       console.log('📋 Fetching completed QC inspections for manager approval...');
       
       // Use the new endpoint specifically for completed inspections
-      const { data } = await api.get('/receiving-qc/qc-inspection/completed/all');
+      const { data } = await api.get('/receiving-qc/qc-inspection/reports');
       
       console.log('✅ Received response:', data);
       console.log('✅ Inspections count:', data.data?.length || 0);
@@ -65,6 +68,20 @@ export default function QCApproval() {
       setAlert({ type: 'error', message: 'Failed to load inspection details' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadInspectionHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      const { data } = await api.get('/receiving-qc/qc-inspection/completed/all');
+      setInspectionHistory(data.data || []);
+      setShowInspectionHistory(true);
+    } catch (error) {
+      console.error('Error loading QC inspection history:', error);
+      setAlert({ type: 'error', message: 'Failed to load QC inspection history' });
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -157,6 +174,14 @@ export default function QCApproval() {
           </h2>
           <p className="text-gray-600 mt-1">Review and approve completed QC inspections</p>
         </div>
+        <button
+          onClick={loadInspectionHistory}
+          disabled={historyLoading}
+          className="inline-flex items-center gap-2 rounded-lg border border-blue-300 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+        >
+          <Clock className="h-4 w-4" />
+          Review History
+        </button>
       </div>
 
       {/* Alert */}
@@ -276,7 +301,7 @@ export default function QCApproval() {
                         <div>
                           <span className="text-gray-600">Shipment:</span>
                           <span className="ml-2 font-medium text-gray-900">
-                            {inspection.shipment_number}
+                            {inspection.shipment_number || 'Ad hoc defect report'}
                           </span>
                         </div>
                         <div>
@@ -623,6 +648,60 @@ export default function QCApproval() {
                     />
                   ))}
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showInspectionHistory && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setShowInspectionHistory(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={event => event.stopPropagation()}
+              className="max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 p-5">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">QC Inspection Review History</h2>
+                  <p className="mt-1 text-sm text-slate-500">Completed inspections and manager decisions.</p>
+                </div>
+                <button onClick={() => setShowInspectionHistory(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close history">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="grid gap-3 p-5">
+                {inspectionHistory.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-500">No QC inspection history found.</p>
+                ) : inspectionHistory.map(inspection => (
+                  <div key={inspection.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{inspection.inspection_number || 'QC Inspection'}</p>
+                        <p className="text-sm text-slate-500">Shipment: {inspection.shipment_number || 'Ad hoc inspection'} · Completed {inspection.inspection_end_date ? new Date(inspection.inspection_end_date).toLocaleString() : 'N/A'}</p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${inspection.manager_decision === 'APPROVED' ? 'bg-green-100 text-green-700' : inspection.manager_decision === 'REJECTED' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {inspection.manager_decision || 'PENDING'}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+                      <div className="rounded-lg bg-white p-2"><p className="text-xs text-slate-500">Good</p><p className="font-bold text-green-700">{inspection.good_quality_count || 0}</p></div>
+                      <div className="rounded-lg bg-white p-2"><p className="text-xs text-slate-500">Minor</p><p className="font-bold text-amber-700">{inspection.minor_defect_count || 0}</p></div>
+                      <div className="rounded-lg bg-white p-2"><p className="text-xs text-slate-500">Major</p><p className="font-bold text-red-700">{inspection.major_defect_count || 0}</p></div>
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500">Inspector: {inspection.inspector_name || 'N/A'} · Reviewed: {inspection.manager_reviewed_at ? new Date(inspection.manager_reviewed_at).toLocaleString() : 'Not reviewed'}</p>
+                    {inspection.manager_notes && <p className="mt-2 rounded-lg bg-white p-2 text-sm text-slate-700">{inspection.manager_notes}</p>}
+                  </div>
+                ))}
               </div>
             </motion.div>
           </motion.div>

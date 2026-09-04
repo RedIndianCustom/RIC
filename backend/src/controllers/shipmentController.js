@@ -64,6 +64,32 @@ export async function getShipments(req, res) {
       });
     }
 
+    // Repair legacy rows where QC is already in progress but the shipment
+    // status was left at READY_FOR_QC by the older workflow.
+    const readyForQcShipmentIds = (data || [])
+      .filter(shipment => shipment.status === 'READY_FOR_QC')
+      .map(shipment => shipment.id);
+
+    if (readyForQcShipmentIds.length > 0) {
+      const { data: activeInspections } = await supabaseAdmin
+        .from('qc_inspections')
+        .select('shipment_id')
+        .in('shipment_id', readyForQcShipmentIds)
+        .eq('status', 'IN_PROGRESS');
+
+      const inspectingShipmentIds = new Set((activeInspections || []).map(inspection => inspection.shipment_id));
+      if (inspectingShipmentIds.size > 0) {
+        await supabaseAdmin
+          .from('shipments')
+          .update({ status: 'INSPECTING', updated_at: new Date().toISOString() })
+          .in('id', [...inspectingShipmentIds]);
+
+        data.forEach(shipment => {
+          if (inspectingShipmentIds.has(shipment.id)) shipment.status = 'INSPECTING';
+        });
+      }
+    }
+
     res.json({
       success: true,
       shipments: data || [],
@@ -408,40 +434,86 @@ export async function deleteShipment(req, res) {
     if (force === 'true') {
       // HARD DELETE: Cascading deletion of all related records
       console.log(`⚠️ Force deleting shipment ${id} and all related records...`);
-      
-      // Step 1: Delete related expected items
-      const { error: expectedItemsError } = await supabaseAdmin
-        .from('shipment_expected_items')
+
+      // Delete notification records first because they may reference several
+      // of the records below through restrictive foreign keys.
+      const { error: notificationsError } = await supabaseAdmin
+        .from('workflow_notifications')
         .delete()
         .eq('shipment_id', id);
-      
-      if (expectedItemsError) {
-        console.warn('Error deleting expected items:', expectedItemsError);
+      if (notificationsError) throw new Error(`workflow_notifications: ${notificationsError.message}`);
+
+      // Capture QC and batch IDs before deleting their parent shipment.
+      const { data: inspections, error: inspectionsLookupError } = await supabaseAdmin
+        .from('qc_inspections')
+        .select('id')
+        .eq('shipment_id', id);
+      if (inspectionsLookupError) throw new Error(`qc_inspections lookup: ${inspectionsLookupError.message}`);
+
+      const inspectionIds = (inspections || []).map(inspection => inspection.id);
+      if (inspectionIds.length > 0) {
+        const { error: approvalsByInspectionError } = await supabaseAdmin
+          .from('receiving_approvals')
+          .delete()
+          .in('qc_inspection_id', inspectionIds);
+        if (approvalsByInspectionError) throw new Error(`receiving_approvals: ${approvalsByInspectionError.message}`);
+
+        const { error: inspectionItemsError } = await supabaseAdmin
+          .from('qc_inspection_items')
+          .delete()
+          .in('qc_inspection_id', inspectionIds);
+        if (inspectionItemsError) throw new Error(`qc_inspection_items: ${inspectionItemsError.message}`);
+
+        const { error: inspectionsError } = await supabaseAdmin
+          .from('qc_inspections')
+          .delete()
+          .in('id', inspectionIds);
+        if (inspectionsError) throw new Error(`qc_inspections: ${inspectionsError.message}`);
       }
 
-      // Step 2: Delete related batches and their inventory units
-      const { data: batches } = await supabaseAdmin
+      // Remove records that are not configured with ON DELETE CASCADE.
+      for (const [table, column] of [
+        ['inspection_records', 'shipment_id'],
+        ['warehouse_tasks', 'shipment_id'],
+        ['shipment_discrepancies', 'shipment_id'],
+        ['shipment_received_items', 'shipment_id'],
+        ['shipment_expected_items', 'shipment_id'],
+        ['receiving_reports', 'shipment_id'],
+        ['waybill_attachments', 'shipment_id']
+      ]) {
+        const { error: relatedError } = await supabaseAdmin
+          .from(table)
+          .delete()
+          .eq(column, id);
+        if (relatedError) throw new Error(`${table}: ${relatedError.message}`);
+      }
+
+      // Delete related batches and their inventory units.
+      const { data: batches, error: batchesLookupError } = await supabaseAdmin
         .from('batches')
         .select('id')
         .eq('shipment_id', id);
+      if (batchesLookupError) throw new Error(`batches lookup: ${batchesLookupError.message}`);
 
       if (batches && batches.length > 0) {
         for (const batch of batches) {
           // Delete inventory units for this batch
-          await supabaseAdmin
+          const { error: inventoryError } = await supabaseAdmin
             .from('inventory_units')
             .delete()
             .eq('batch_id', batch.id);
+          if (inventoryError) throw new Error(`inventory_units: ${inventoryError.message}`);
         }
 
         // Delete all batches
-        await supabaseAdmin
+        const { error: batchesError } = await supabaseAdmin
           .from('batches')
           .delete()
           .eq('shipment_id', id);
+        if (batchesError) throw new Error(`batches: ${batchesError.message}`);
       }
 
-      // Step 3: Delete the shipment itself
+      // Delete the shipment itself after all dependent records are removed.
       const { error: deleteError } = await supabaseAdmin
         .from('shipments')
         .delete()
@@ -451,7 +523,7 @@ export async function deleteShipment(req, res) {
         console.error('Error force deleting shipment:', deleteError);
         return res.status(500).json({
           error: 'Failed to delete shipment',
-          details: deleteError.message
+          details: deleteError.message,
         });
       }
 

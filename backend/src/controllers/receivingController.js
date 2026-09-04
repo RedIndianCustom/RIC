@@ -85,18 +85,26 @@ export async function submitReceivingReport(req, res) {
       sizes_count: size_breakdown.length
     });
 
-    // Call database function
-    const { data, error } = await supabase.rpc('submit_receiving_report', {
-      p_shipment_id: shipment_id,
-      p_session_id: session_id,
-      p_submitted_by: userId,
-      p_size_breakdown: size_breakdown,
-      p_total_expected: total_expected,
-      p_total_scanned: total_scanned,
-      p_total_discrepancy: total_discrepancy,
-      p_notes: notes || null,
-      p_scan_details: scan_details || null
-    });
+    const hasDiscrepancies = total_discrepancy !== 0;
+    const reportNumber = `RR-${Date.now()}`;
+
+    const { data: report, error } = await supabase
+      .from('receiving_reports')
+      .insert({
+        shipment_id,
+        session_id,
+        report_number: reportNumber,
+        submitted_by: userId,
+        size_breakdown,
+        total_expected,
+        total_scanned,
+        total_discrepancy,
+        notes: notes || null,
+        scan_details: scan_details || null,
+        status: hasDiscrepancies ? 'PENDING' : 'APPROVED'
+      })
+      .select('id, report_number')
+      .single();
 
     if (error) {
       console.error('❌ Error submitting report:', error);
@@ -105,6 +113,48 @@ export async function submitReceivingReport(req, res) {
         error: error.message || 'Failed to submit receiving report'
       });
     }
+
+    const { error: shipmentError } = await supabase
+      .from('shipments')
+      .update({
+        status: hasDiscrepancies ? 'AWAITING_APPROVAL' : 'QC_READY',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', shipment_id);
+
+    if (shipmentError) {
+      console.error('❌ Error updating shipment after report submission:', shipmentError);
+    }
+
+    const reportDiscrepancies = size_breakdown
+      .filter(item => item.discrepancy !== 0 && item.product_id && item.size)
+      .map(item => ({
+        shipment_id,
+        product_id: item.product_id,
+        product_size: item.size,
+        expected_quantity: item.expected,
+        received_quantity: item.scanned,
+        discrepancy_type: item.discrepancy > 0 ? 'SHORT' : 'OVERAGE',
+        reported_by: userId,
+        status: 'OPEN',
+        manager_decision: 'PENDING'
+      }));
+
+    if (reportDiscrepancies.length > 0) {
+      const { error: discrepancyError } = await supabase
+        .from('shipment_discrepancies')
+        .insert(reportDiscrepancies);
+
+      if (discrepancyError) {
+        console.error('❌ Error creating discrepancy records:', discrepancyError);
+      }
+    }
+
+    const data = {
+      report_id: report.id,
+      report_number: report.report_number,
+      has_discrepancies: hasDiscrepancies
+    };
 
     console.log('✅ Report submitted successfully:', data);
 
@@ -195,8 +245,29 @@ export async function getPendingApprovals(req, res) {
 
     console.log('📋 Fetching pending approvals for manager:', userId);
 
-    // Call database function
-    const { data, error } = await supabase.rpc('get_pending_receiving_approvals');
+    const { data: reports, error } = await supabase
+      .from('receiving_reports')
+      .select(`
+        id,
+        report_number,
+        shipment_id,
+        submitted_by,
+        created_at,
+        total_expected,
+        total_scanned,
+        total_discrepancy,
+        has_discrepancies,
+        size_breakdown,
+        notes,
+        status,
+        shipments (
+          shipment_number,
+          container_number,
+          suppliers (name)
+        )
+      `)
+      .in('status', ['PENDING', 'PENDING_APPROVAL', 'APPROVED'])
+      .order('created_at', { ascending: true });
 
     if (error) {
       console.error('❌ Error fetching pending approvals:', error);
@@ -206,7 +277,56 @@ export async function getPendingApprovals(req, res) {
       });
     }
 
-    console.log('✅ Found pending approvals:', data?.length || 0);
+    const approvedShipmentIds = [...new Set((reports || [])
+      .filter(report => report.status === 'APPROVED')
+      .map(report => report.shipment_id))];
+    let shipmentsWithQc = new Set();
+    if (approvedShipmentIds.length > 0) {
+      const { data: qcInspections } = await supabase
+        .from('qc_inspections')
+        .select('shipment_id')
+        .in('shipment_id', approvedShipmentIds);
+      shipmentsWithQc = new Set((qcInspections || []).map(inspection => inspection.shipment_id));
+    }
+
+    const actionableReports = (reports || []).filter(report =>
+      report.status !== 'APPROVED' || !shipmentsWithQc.has(report.shipment_id)
+    );
+    const submitterIds = [...new Set(actionableReports.map(report => report.submitted_by).filter(Boolean))];
+    let submitters = [];
+    if (submitterIds.length > 0) {
+      const { data: users, error: usersError } = await supabase
+        .from('users')
+        .select('id, full_name, email')
+        .in('id', submitterIds);
+
+      if (usersError) {
+        console.warn('⚠️ Could not load report submitters:', usersError.message);
+      } else {
+        submitters = users || [];
+      }
+    }
+
+    const submitterById = new Map(submitters.map(user => [user.id, user]));
+    const data = actionableReports.map(report => ({
+      ...report,
+      shipment_number: report.shipments?.shipment_number,
+      supplier: report.shipments?.suppliers || null,
+      received_by: submitterById.get(report.submitted_by) || null,
+      received_at: report.created_at,
+      needs_qc_setup: report.status === 'APPROVED',
+      items: Array.isArray(report.size_breakdown)
+        ? report.size_breakdown.map((item, index) => ({
+          id: `${report.id}-${index}`,
+          product: { name: item.product_name || item.productName || item.sku || 'Unknown Product' },
+          product_size: item.size,
+          expected_quantity: item.expected,
+          received_quantity: item.scanned
+        }))
+        : []
+    }));
+
+    console.log('✅ Found pending approvals:', data.length);
 
     return res.status(200).json({
       success: true,
@@ -296,13 +416,27 @@ export async function approveReceivingReport(req, res) {
 
     console.log(`📋 Manager ${userId} making decision on report ${reportId}:`, decision);
 
-    // Call database function (includes QC batch creation if approved)
-    const { data, error } = await supabase.rpc('approve_receiving_report', {
-      p_report_id: reportId, // UUID, not integer
-      p_approved_by: userId,
-      p_decision: decision,
-      p_decision_notes: decision_notes || null
-    });
+    const { data: approvalReport, error: reportLookupError } = await supabase
+      .from('receiving_reports')
+      .select('id, report_number, shipment_id')
+      .eq('id', reportId)
+      .single();
+
+    if (reportLookupError || !approvalReport) {
+      return res.status(404).json({
+        success: false,
+        error: reportLookupError?.message || 'Report not found'
+      });
+    }
+
+    const { error } = await supabase
+      .from('receiving_reports')
+      .update({
+        status: decision,
+        updated_at: new Date().toISOString(),
+        rejection_reason: decision === 'REJECTED' ? (decision_notes || null) : null
+      })
+      .eq('id', reportId);
 
     if (error) {
       console.error('❌ Error approving report:', error);
@@ -312,12 +446,26 @@ export async function approveReceivingReport(req, res) {
       });
     }
 
-    if (!data?.success) {
-      return res.status(404).json({
-        success: false,
-        error: data?.error || 'Report not found'
-      });
+    const shipmentStatus = decision === 'APPROVED' ? 'READY_FOR_QC' : 'INSPECTING';
+    const { error: shipmentUpdateError } = await supabase
+      .from('shipments')
+      .update({ status: shipmentStatus, updated_at: new Date().toISOString() })
+      .eq('id', approvalReport.shipment_id);
+
+    if (shipmentUpdateError) {
+      console.warn('⚠️ Could not update shipment after approval:', shipmentUpdateError.message);
     }
+
+    const data = {
+      success: true,
+      report_id: approvalReport.id,
+      report_number: approvalReport.report_number,
+      decision,
+      actions: { shipment_status: shipmentStatus },
+      message: decision === 'APPROVED'
+        ? 'Report approved. Set the QC inspection deadline to continue.'
+        : 'Report rejected. Shipment returned to inspection.'
+    };
 
     console.log('✅ Approval processed successfully:', data);
 
@@ -464,10 +612,6 @@ export async function getReceivingReport(req, res) {
           container_number,
           supplier_id,
           suppliers (name)
-        ),
-        users (
-          full_name,
-          email
         )
       `)
       .eq('id', reportId)
@@ -530,13 +674,9 @@ export async function getReceivingReports(req, res) {
           shipment_number,
           container_number,
           status
-        ),
-        users (
-          full_name,
-          email
         )
       `, { count: 'exact' })
-      .order('submitted_at', { ascending: false })
+      .order('created_at', { ascending: false })
       .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
 
     // Apply filters
@@ -545,7 +685,7 @@ export async function getReceivingReports(req, res) {
     }
 
     if (shipment_id) {
-      query = query.eq('shipment_id', parseInt(shipment_id));
+      query = query.eq('shipment_id', shipment_id);
     }
 
     const { data, error, count } = await query;

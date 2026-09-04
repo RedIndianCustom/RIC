@@ -18,6 +18,8 @@ export default function QCInspectionEnhanced() {
   const [alert, setAlert] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [inspectedItems, setInspectedItems] = useState([]);
+  const [expectedItems, setExpectedItems] = useState([]);
+  const [receivingReport, setReceivingReport] = useState(null);
   const [showReport, setShowReport] = useState(false);
   
   // Session Statistics - Enhanced
@@ -98,12 +100,49 @@ export default function QCInspectionEnhanced() {
     try {
       setLoading(true);
       const { data } = await api.get('/receiving-qc/qc-inspection/pending/all');
-      setInspections(data.data || []);
+      setInspections((data.data || []).filter(inspection => (
+        !inspection.inspection_number?.startsWith('QC-ADHOC-') ||
+        (inspection.items_inspected || 0) > 0
+      )));
     } catch (error) {
       console.error('Error loading inspections:', error);
       setAlert({ type: 'error', message: 'Failed to load inspections' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startAdHocInspection = async () => {
+    try {
+      setSelectedInspection({
+        id: null,
+        inspection_number: 'New ad hoc defect report',
+        shipment: null,
+        items: [],
+        items_inspected: 0,
+        total_items: 1,
+        has_deadline: false,
+        deadline_type: 'NONE'
+      });
+      setInspectedItems([]);
+      setExpectedItems([]);
+      setReceivingReport(null);
+      setShowReport(false);
+      setSessionStats({
+        startTime: Date.now(),
+        totalScanned: 0,
+        goodCount: 0,
+        minorDefectCount: 0,
+        majorDefectCount: 0,
+        inspectionRate: 0,
+        qualityScore: 100,
+        elapsedTime: 0
+      });
+      resetItemForm();
+      setShowCamera(true);
+    } catch (error) {
+      console.error('Error starting ad hoc QC inspection:', error);
+      setAlert({ type: 'error', message: 'Could not start quick QC report' });
     }
   };
 
@@ -113,6 +152,17 @@ export default function QCInspectionEnhanced() {
       const { data } = await api.get(`/receiving-qc/qc-inspection/${inspection.id}`);
       setSelectedInspection(data.data);
       setInspectedItems(data.data.items || []);
+      if (data.data.shipment_id) {
+        const [{ data: expectedData }, { data: reportData }] = await Promise.all([
+          api.get(`/receiving-qc/expected-items/${data.data.shipment_id}`),
+          api.get('/receiving/reports', { params: { shipment_id: data.data.shipment_id, limit: 1 } })
+        ]);
+        setExpectedItems(expectedData.data || []);
+        setReceivingReport(reportData.data?.[0] || null);
+      } else {
+        setExpectedItems([]);
+        setReceivingReport(null);
+      }
       setShowReport(false);
       
       // Initialize session stats with timer
@@ -191,6 +241,15 @@ export default function QCInspectionEnhanced() {
     }
     
     await processBarcode(barcode);
+  };
+
+  const closeCamera = () => {
+    setShowCamera(false);
+    if (selectedInspection && !selectedInspection.id) {
+      setSelectedInspection(null);
+      setInspectedItems([]);
+      resetItemForm();
+    }
   };
 
   const processBarcode = async (barcode) => {
@@ -383,11 +442,25 @@ export default function QCInspectionEnhanced() {
     try {
       setLoading(true);
 
+      let inspectionId = selectedInspection.id;
+      if (!inspectionId) {
+        const { data } = await api.post('/receiving-qc/qc-inspection/create-ad-hoc');
+        inspectionId = data.data.id;
+        setSelectedInspection(prev => ({
+          ...prev,
+          ...data.data,
+          shipment: null,
+          items: [],
+          items_inspected: 0,
+          total_items: 1
+        }));
+      }
+
       // Upload photos first (in production)
       const photoUrls = photos.map(p => p.preview); // Replace with actual upload URLs
 
       const payload = {
-        qc_inspection_id: selectedInspection.id,
+        qc_inspection_id: inspectionId,
         barcode: currentItem.barcode,
         product_id: currentItem.product_id,
         product_size: currentItem.product_size,
@@ -542,7 +615,7 @@ export default function QCInspectionEnhanced() {
   // Inspection Report View
   if (selectedInspection && showReport) {
     return (
-      <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
+      <div className="mx-auto w-full max-w-7xl space-y-4 overflow-x-hidden p-2 sm:space-y-6 sm:p-0">
         {/* Header - Mobile Responsive */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -553,7 +626,9 @@ export default function QCInspectionEnhanced() {
               {selectedInspection.inspection_number}
             </p>
             <p className="text-xs sm:text-sm text-gray-500 truncate">
-              Shipment: {selectedInspection.shipment?.shipment_number}
+              {selectedInspection.shipment?.shipment_number
+                ? `Shipment: ${selectedInspection.shipment.shipment_number}`
+                : 'Ad hoc defect report'}
             </p>
           </div>
           
@@ -575,7 +650,7 @@ export default function QCInspectionEnhanced() {
         </div>
 
         {/* Statistics Cards - Mobile Responsive Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-4">
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-3 sm:p-6">
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
@@ -621,7 +696,7 @@ export default function QCInspectionEnhanced() {
         </div>
 
         {/* Quality Distribution Chart - Mobile Responsive */}
-        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
+        <div className="bg-white rounded-xl shadow-md border border-gray-200 p-3 sm:p-6">
           <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 flex items-center gap-2">
             <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
             <span className="truncate">Quality Distribution</span>
@@ -754,8 +829,8 @@ export default function QCInspectionEnhanced() {
         </div>
 
         {/* Complete Inspection Button - Mobile Responsive */}
-        {selectedInspection.items_inspected >= selectedInspection.total_items && (
-          <div className="flex justify-end px-2 sm:px-0">
+        {selectedInspection.total_items > 0 && selectedInspection.items_inspected >= selectedInspection.total_items && (
+          <div className="sticky bottom-2 z-10 flex justify-end px-2 sm:static sm:px-0">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -777,9 +852,34 @@ export default function QCInspectionEnhanced() {
     const progress = selectedInspection.total_items > 0 
       ? (selectedInspection.items_inspected / selectedInspection.total_items) * 100 
       : 0;
+    const inspectionProducts = [...new Set(expectedItems
+      .map(item => item.product_id || item.product?.id || item.product?.name)
+      .filter(Boolean))];
+    const inspectionSizes = [...new Set(expectedItems
+      .map(item => item.product_size || item.product?.dimensions)
+      .filter(Boolean))];
+    const receivedByProductSize = (receivingReport?.size_breakdown || []).reduce((summary, item) => {
+      summary[`${item.product_id || ''}-${item.size || ''}`] = item.scanned || 0;
+      return summary;
+    }, {});
+    const expectedProductSummary = expectedItems.reduce((summary, item) => {
+      const productName = item.product
+        ? `${item.product.brand || ''} ${item.product.model || item.product.name || ''}`.trim()
+        : 'Unknown Product';
+      const size = item.product_size || item.product?.dimensions || 'N/A';
+      const key = `${productName}-${size}`;
+      const receivedKey = `${item.product_id || item.product?.id || ''}-${size}`;
+      summary[key] = {
+        productName,
+        size,
+        expectedQuantity: (summary[key]?.expectedQuantity || 0) + (item.expected_quantity || 0),
+        receivedQuantity: (summary[key]?.receivedQuantity || 0) + (receivedByProductSize[receivedKey] ?? item.expected_quantity ?? 0)
+      };
+      return summary;
+    }, {});
 
     return (
-      <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
+      <div className="mx-auto w-full max-w-7xl space-y-4 overflow-x-hidden p-2 sm:space-y-6 sm:p-0">
         {/* Header - Mobile Responsive */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -790,7 +890,9 @@ export default function QCInspectionEnhanced() {
               {selectedInspection.inspection_number}
             </p>
             <p className="text-xs sm:text-sm text-gray-500 truncate">
-              Shipment: {selectedInspection.shipment?.shipment_number}
+              {selectedInspection.shipment?.shipment_number
+                ? `Shipment: ${selectedInspection.shipment.shipment_number}`
+                : 'Ad hoc defect report'}
             </p>
           </div>
           
@@ -819,7 +921,7 @@ export default function QCInspectionEnhanced() {
         </AnimatePresence>
 
         {/* Progress & Deadline & Actions - Mobile Responsive Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
               <h3 className="text-sm sm:text-base font-semibold text-gray-900">Progress</h3>
@@ -873,6 +975,48 @@ export default function QCInspectionEnhanced() {
           </div>
         </div>
 
+        <div className="grid grid-cols-3 gap-2 sm:gap-4">
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 sm:p-5">
+            <p className="text-[11px] font-medium text-blue-700 sm:text-sm">QC Items</p>
+            <p className="mt-1 text-2xl font-bold text-blue-900 sm:text-3xl">{selectedInspection.total_items || 0}</p>
+            <p className="mt-1 text-[10px] text-blue-600 sm:text-xs">Received for inspection</p>
+          </div>
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 sm:p-5">
+            <p className="text-[11px] font-medium text-indigo-700 sm:text-sm">Products</p>
+            <p className="mt-1 text-2xl font-bold text-indigo-900 sm:text-3xl">{inspectionProducts.length}</p>
+            <p className="mt-1 text-[10px] text-indigo-600 sm:text-xs">Product types</p>
+          </div>
+          <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 sm:p-5">
+            <p className="text-[11px] font-medium text-violet-700 sm:text-sm">Sizes</p>
+            <p className="mt-1 text-2xl font-bold text-violet-900 sm:text-3xl">{inspectionSizes.length}</p>
+            <p className="mt-1 text-[10px] text-violet-600 sm:text-xs">Size variations</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-md sm:p-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Package className="h-5 w-5 text-blue-600" />
+            <h3 className="font-semibold text-slate-900">Received Products & Sizes</h3>
+          </div>
+          <div className="space-y-2">
+            {Object.values(expectedProductSummary).map(item => (
+              <div key={`${item.productName}-${item.size}`} className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-900">{item.productName}</p>
+                  <p className="text-xs text-slate-500">Size: {item.size}</p>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  <span className="rounded-md bg-blue-100 px-2 py-1 font-bold text-blue-800">{item.receivedQuantity}</span>
+                  <p className="mt-1 text-[10px] text-slate-500">of {item.expectedQuantity} expected</p>
+                </div>
+              </div>
+            ))}
+            {expectedItems.length === 0 && (
+              <p className="text-sm text-slate-500">Expected item details are unavailable.</p>
+            )}
+          </div>
+        </div>
+
         {/* Scan Input - Mobile Responsive */}
         {!currentItem && (
           <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
@@ -921,12 +1065,12 @@ export default function QCInspectionEnhanced() {
 
         {/* Inspection Form - Mobile Responsive */}
         {currentItem && (
-          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-4 sm:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 sm:mb-6 gap-3">
+          <div className="bg-white rounded-xl shadow-md border border-gray-200 p-3 sm:p-6">
+            <div className="flex items-start gap-3 mb-4 sm:mb-6">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 sm:gap-3 mb-2">
+                <div className="flex items-start gap-2 sm:gap-3 mb-2">
                   <Package className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 flex-shrink-0" />
-                  <h3 className="font-semibold text-gray-900 text-base sm:text-lg truncate">
+                  <h3 className="min-w-0 font-semibold text-gray-900 text-base sm:text-lg break-words">
                     {currentItem.product_name || 'Unknown Product'}
                   </h3>
                   {currentItem.product_brand && (
@@ -935,30 +1079,32 @@ export default function QCInspectionEnhanced() {
                     </span>
                   )}
                 </div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 text-xs sm:text-sm text-gray-600">
-                  <span className="flex items-center gap-1 truncate">
+                <div className="flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:gap-4 sm:text-sm text-gray-600">
+                  <span className="flex items-start gap-1 break-words">
                     <strong>Size:</strong> {currentItem.product_size || 'N/A'}
                   </span>
-                  <span className="flex items-center gap-1">
-                    <strong>Barcode:</strong> <code className="bg-gray-100 px-2 py-0.5 sm:py-1 rounded text-xs">{currentItem.barcode}</code>
+                  <span className="flex items-start gap-1 min-w-0">
+                    <strong className="flex-shrink-0">Barcode:</strong>
+                    <code className="min-w-0 break-all bg-gray-100 px-2 py-0.5 sm:py-1 rounded text-[10px] sm:text-xs">{currentItem.barcode}</code>
                   </span>
                 </div>
               </div>
               <button
                 onClick={resetItemForm}
-                className="self-end sm:self-auto text-gray-400 hover:text-gray-600"
+                className="flex-shrink-0 rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                aria-label="Cancel current inspection item"
               >
                 <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
-            <div className="space-y-4 sm:space-y-6">
+            <div className="space-y-3 sm:space-y-6">
               {/* Classification - Mobile Responsive */}
               <div>
                 <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2 sm:mb-3">
                   Classification *
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
                   {['GOOD', 'MINOR_DEFECT', 'MAJOR_DEFECT'].map((cls) => (
                     <motion.button
                       key={cls}
@@ -978,7 +1124,7 @@ export default function QCInspectionEnhanced() {
                           setIsSellable(false);
                         }
                       }}
-                      className={`p-3 sm:p-4 rounded-lg border-2 transition-all ${
+                      className={`min-h-14 p-3 sm:min-h-0 sm:p-4 rounded-lg border-2 transition-all ${
                         classification === cls
                           ? cls === 'GOOD'
                             ? 'border-green-500 bg-green-50 text-green-700'
@@ -1002,7 +1148,7 @@ export default function QCInspectionEnhanced() {
               {/* Defect Details (shown if not GOOD) - Mobile Responsive */}
               {classification !== 'GOOD' && (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
                     <div>
                       <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
                         Defect Type
@@ -1010,7 +1156,7 @@ export default function QCInspectionEnhanced() {
                       <select
                         value={defectType}
                         onChange={(e) => setDefectType(e.target.value)}
-                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                        className="w-full min-h-11 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       >
                         <option value="">Select Type</option>
                         <option value="SCRATCH">Scratch</option>
@@ -1030,7 +1176,7 @@ export default function QCInspectionEnhanced() {
                       <select
                         value={defectLocation}
                         onChange={(e) => setDefectLocation(e.target.value)}
-                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                        className="w-full min-h-11 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       >
                         <option value="">Select Location</option>
                         <option value="TREAD">Tread</option>
@@ -1048,7 +1194,7 @@ export default function QCInspectionEnhanced() {
                       <select
                         value={defectSeverity}
                         onChange={(e) => setDefectSeverity(e.target.value)}
-                        className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                        className="w-full min-h-11 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       >
                         <option value="">Select Severity</option>
                         <option value="COSMETIC">Cosmetic (Minor)</option>
@@ -1069,7 +1215,7 @@ export default function QCInspectionEnhanced() {
                           step="5"
                           value={discountPercentage}
                           onChange={(e) => setDiscountPercentage(e.target.value)}
-                          className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                          className="w-full min-h-11 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                           placeholder="10"
                         />
                       </div>
@@ -1084,7 +1230,7 @@ export default function QCInspectionEnhanced() {
                       value={defectDescription}
                       onChange={(e) => setDefectDescription(e.target.value)}
                       rows={3}
-                      className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                      className="w-full min-h-20 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                       placeholder="Describe the defect in detail..."
                     />
                   </div>
@@ -1151,7 +1297,7 @@ export default function QCInspectionEnhanced() {
                   value={qualityNotes}
                   onChange={(e) => setQualityNotes(e.target.value)}
                   rows={2}
-                  className="w-full px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                  className="w-full min-h-16 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
                   placeholder="Additional notes..."
                 />
               </div>
@@ -1161,7 +1307,7 @@ export default function QCInspectionEnhanced() {
                 <button
                   type="button"
                   onClick={resetItemForm}
-                  className="w-full sm:w-auto px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm sm:text-base"
+                  className="w-full min-h-11 sm:w-auto sm:px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm sm:text-base"
                 >
                   Cancel
                 </button>
@@ -1171,7 +1317,7 @@ export default function QCInspectionEnhanced() {
                   whileTap={{ scale: 0.98 }}
                   onClick={recordInspectionItem}
                   disabled={loading}
-                  className="w-full sm:w-auto px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-semibold disabled:opacity-50 flex items-center justify-center gap-2 text-sm sm:text-base"
+                  className="w-full min-h-11 sm:w-auto sm:px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 font-semibold disabled:opacity-50 flex items-center justify-center gap-2 text-sm sm:text-base"
                 >
                   <CheckCircle className="w-4 h-4" />
                   Record Inspection
@@ -1182,8 +1328,8 @@ export default function QCInspectionEnhanced() {
         )}
 
         {/* Complete Button - Mobile Responsive */}
-        {selectedInspection.items_inspected >= selectedInspection.total_items && (
-          <div className="flex justify-end px-2 sm:px-0">
+        {selectedInspection.total_items > 0 && selectedInspection.items_inspected >= selectedInspection.total_items && (
+          <div className="sticky bottom-2 z-10 flex justify-end px-2 sm:static sm:px-0">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -1204,14 +1350,14 @@ export default function QCInspectionEnhanced() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4"
-              onClick={() => setShowCamera(false)}
+              className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-1.5 backdrop-blur-sm sm:p-4"
+              onClick={closeCamera}
             >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-white rounded-xl sm:rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden max-h-[95vh] overflow-y-auto"
+                className="my-auto min-h-[calc(100dvh-0.75rem)] max-h-[calc(100dvh-0.75rem)] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-2xl sm:min-h-0 sm:max-h-[95vh] sm:rounded-2xl"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="p-4 sm:p-6 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 text-white sticky top-0 z-10">
@@ -1223,20 +1369,20 @@ export default function QCInspectionEnhanced() {
                     </div>
                   </div>
                   <button
-                    onClick={() => setShowCamera(false)}
+                    onClick={closeCamera}
                     className="p-1.5 sm:p-2 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors flex-shrink-0 ml-2"
                   >
                     <X className="w-5 h-5 sm:w-6 sm:h-6" />
                   </button>
                 </div>
 
-                <div className="p-3 sm:p-6">
+                <div className="p-2 sm:p-6">
                   <BarcodeScanner
                     onScan={handleCameraScan}
                     onError={(error) => {
                       console.error('Scanner error:', error);
                       setAlert({ type: 'error', message: 'Camera error. Please check permissions.' });
-                      setShowCamera(false);
+                      closeCamera();
                     }}
                   />
                 </div>
@@ -1261,7 +1407,7 @@ export default function QCInspectionEnhanced() {
 
   // Inspections List View
   return (
-    <div className="space-y-4 sm:space-y-6 p-2 sm:p-0">
+    <div className="mx-auto w-full max-w-7xl space-y-4 overflow-x-hidden p-2 sm:space-y-6 sm:p-0">
       {/* Header - Mobile Responsive */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -1271,6 +1417,17 @@ export default function QCInspectionEnhanced() {
           </h2>
           <p className="text-sm sm:text-base text-gray-600 mt-1">Quality Control Inspection Dashboard</p>
         </div>
+        <button
+          type="button"
+          onClick={startAdHocInspection}
+          disabled={loading}
+          aria-label="Report a defective product"
+          title="Report a defective product"
+          className="flex min-h-12 w-full touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-all hover:bg-red-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 sm:min-w-44 sm:w-auto sm:text-base"
+        >
+          <Camera className="h-5 w-5" />
+          <span>Report Defect</span>
+        </button>
       </div>
 
       {/* Alert */}
@@ -1292,75 +1449,75 @@ export default function QCInspectionEnhanced() {
       </AnimatePresence>
 
       {/* Stats Overview Cards - Enhanced - Always visible */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           <motion.div
             whileHover={{ y: -4 }}
-            className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl shadow-md border border-blue-200 p-6"
+            className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl shadow-md border border-blue-200 p-3 sm:p-6"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-blue-700">Pending Inspections</p>
-                <p className="text-3xl font-bold text-blue-900 mt-1">
+                <p className="text-xs sm:text-sm font-medium text-blue-700">Pending Inspections</p>
+                <p className="text-2xl sm:text-3xl font-bold text-blue-900 mt-1">
                   {inspections.filter(i => i.status === 'PENDING').length}
                 </p>
                 <p className="text-xs text-blue-600 mt-1">Ready to inspect</p>
               </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <ClipboardCheck className="w-8 h-8 text-blue-600" />
+              <div className="hidden rounded-lg bg-blue-100 p-3 sm:block">
+                <ClipboardCheck className="h-8 w-8 text-blue-600" />
               </div>
             </div>
           </motion.div>
 
           <motion.div
             whileHover={{ y: -4 }}
-            className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-xl shadow-md border border-yellow-200 p-6"
+            className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-xl shadow-md border border-yellow-200 p-3 sm:p-6"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-yellow-700">In Progress</p>
-                <p className="text-3xl font-bold text-yellow-900 mt-1">
+                <p className="text-xs sm:text-sm font-medium text-yellow-700">In Progress</p>
+                <p className="text-2xl sm:text-3xl font-bold text-yellow-900 mt-1">
                   {inspections.filter(i => i.status === 'IN_PROGRESS').length}
                 </p>
                 <p className="text-xs text-yellow-600 mt-1">Currently inspecting</p>
               </div>
-              <div className="p-3 bg-yellow-100 rounded-lg">
-                <Activity className="w-8 h-8 text-yellow-600" />
+              <div className="hidden rounded-lg bg-yellow-100 p-3 sm:block">
+                <Activity className="h-8 w-8 text-yellow-600" />
               </div>
             </div>
           </motion.div>
 
           <motion.div
             whileHover={{ y: -4 }}
-            className="bg-gradient-to-br from-red-50 to-rose-50 rounded-xl shadow-md border border-red-200 p-6"
+            className="bg-gradient-to-br from-red-50 to-rose-50 rounded-xl shadow-md border border-red-200 p-3 sm:p-6"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-red-700">Overdue</p>
-                <p className="text-3xl font-bold text-red-900 mt-1">
+                <p className="text-xs sm:text-sm font-medium text-red-700">Overdue</p>
+                <p className="text-2xl sm:text-3xl font-bold text-red-900 mt-1">
                   {inspections.filter(i => i.is_overdue).length}
                 </p>
                 <p className="text-xs text-red-600 mt-1">Requires attention</p>
               </div>
-              <div className="p-3 bg-red-100 rounded-lg">
-                <AlertCircle className="w-8 h-8 text-red-600" />
+              <div className="hidden rounded-lg bg-red-100 p-3 sm:block">
+                <AlertCircle className="h-8 w-8 text-red-600" />
               </div>
             </div>
           </motion.div>
 
           <motion.div
             whileHover={{ y: -4 }}
-            className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl shadow-md border border-green-200 p-6"
+            className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl shadow-md border border-green-200 p-3 sm:p-6"
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-green-700">Total Items</p>
-                <p className="text-3xl font-bold text-green-900 mt-1">
+                <p className="text-xs sm:text-sm font-medium text-green-700">Total Items</p>
+                <p className="text-2xl sm:text-3xl font-bold text-green-900 mt-1">
                   {inspections.reduce((sum, i) => sum + (i.total_items || 0), 0)}
                 </p>
                 <p className="text-xs text-green-600 mt-1">Awaiting inspection</p>
               </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <Package className="w-8 h-8 text-green-600" />
+              <div className="hidden rounded-lg bg-green-100 p-3 sm:block">
+                <Package className="h-8 w-8 text-green-600" />
               </div>
             </div>
           </motion.div>
@@ -1435,6 +1592,22 @@ export default function QCInspectionEnhanced() {
                     <p className="text-sm text-gray-600">
                       Shipment: <span className="font-semibold text-gray-900">{inspection.shipment_number}</span>
                     </p>
+
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">
+                        Expected: {inspection.total_items || 0} items
+                      </span>
+                      {(inspection.product_count || inspection.products_count) && (
+                        <span className="rounded-md bg-indigo-50 px-2 py-1 font-medium text-indigo-700">
+                          Products: {inspection.product_count || inspection.products_count}
+                        </span>
+                      )}
+                      {(inspection.size_count || inspection.sizes_count) && (
+                        <span className="rounded-md bg-violet-50 px-2 py-1 font-medium text-violet-700">
+                          Sizes: {inspection.size_count || inspection.sizes_count}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400 flex-shrink-0" />

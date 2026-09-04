@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Plus, Package, Search, Calendar, Truck, CheckCircle2, XCircle, 
@@ -648,7 +649,10 @@ export default function ShipmentRegistration() {
       await loadData();
     } catch (err) {
       console.error('Error deleting shipment:', err);
-      setAlert({ type: 'error', message: err.response?.data?.error || err.message || 'Failed to delete shipment' });
+      setAlert({
+        type: 'error',
+        message: err.response?.data?.details || err.response?.data?.error || err.message || 'Failed to delete shipment'
+      });
     }
   };
 
@@ -969,7 +973,8 @@ export default function ShipmentRegistration() {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => setShowForm(!showForm)}
+            type="button"
+            onClick={() => setShowForm(true)}
             className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 font-medium"
           >
             <Plus className="h-5 w-5 mr-2" />
@@ -978,23 +983,23 @@ export default function ShipmentRegistration() {
         </motion.div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
             whileHover={{ y: -4 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-emerald-100"
+            className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-4 border border-emerald-100"
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-600">Total Shipments</p>
-                <p className="text-3xl font-bold bg-gradient-to-r from-emerald-600 to-green-600 bg-clip-text text-transparent mt-1">
+                <p className="text-2xl font-bold bg-gradient-to-r from-emerald-600 to-green-600 bg-clip-text text-transparent mt-1">
                   {stats.total}
                 </p>
               </div>
-              <div className="p-4 bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl shadow-lg">
-                <Ship className="h-8 w-8 text-white" />
+              <div className="p-3 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl shadow-lg">
+                <Ship className="h-6 w-6 text-white" />
               </div>
             </div>
           </motion.div>
@@ -1004,17 +1009,17 @@ export default function ShipmentRegistration() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
             whileHover={{ y: -4 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-yellow-100"
+            className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-4 border border-yellow-100"
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-600">Pending</p>
-                <p className="text-3xl font-bold bg-gradient-to-r from-yellow-600 to-amber-600 bg-clip-text text-transparent mt-1">
+                <p className="text-2xl font-bold bg-gradient-to-r from-yellow-600 to-amber-600 bg-clip-text text-transparent mt-1">
                   {stats.pending}
                 </p>
               </div>
-              <div className="p-4 bg-gradient-to-br from-yellow-500 to-amber-600 rounded-2xl shadow-lg">
-                <Clock className="h-8 w-8 text-white" />
+              <div className="p-3 bg-gradient-to-br from-yellow-500 to-amber-600 rounded-xl shadow-lg">
+                <Clock className="h-6 w-6 text-white" />
               </div>
             </div>
           </motion.div>
@@ -1024,17 +1029,17 @@ export default function ShipmentRegistration() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3 }}
             whileHover={{ y: -4 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-blue-100"
+            className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-4 border border-blue-100"
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-600">In Transit</p>
-                <p className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mt-1">
+                <p className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mt-1">
                   {stats.inTransit}
                 </p>
               </div>
-              <div className="p-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-lg">
-                <Truck className="h-8 w-8 text-white" />
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+                <Truck className="h-6 w-6 text-white" />
               </div>
             </div>
           </motion.div>
@@ -1044,51 +1049,52 @@ export default function ShipmentRegistration() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
             whileHover={{ y: -4 }}
-            className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-green-100"
+            className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-4 border border-green-100"
           >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-600">Received</p>
-                <p className="text-3xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mt-1">
+                <p className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent mt-1">
                   {stats.received}
                 </p>
               </div>
-              <div className="p-4 bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl shadow-lg">
-                <CheckCircle2 className="h-8 w-8 text-white" />
+              <div className="p-3 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl shadow-lg">
+                <CheckCircle2 className="h-6 w-6 text-white" />
               </div>
             </div>
           </motion.div>
         </div>
 
         {/* Form Modal */}
-        <AnimatePresence>
-          {showForm && (
+        {createPortal(
+          <AnimatePresence>
+            {showForm && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-              onClick={resetForm}
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-md"
+              style={{ position: 'fixed', top: 0, right: 0, bottom: 0, left: 0 }}
             >
               <motion.div
                 initial={{ scale: 0.95, y: 20 }}
                 animate={{ scale: 1, y: 0 }}
                 exit={{ scale: 0.95, y: 20 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden"
+                className="flex max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
               >
                 {/* Modal Header */}
-                <div className="bg-gradient-to-r from-emerald-600 to-green-600 px-8 py-6">
+                <div className="bg-gradient-to-r from-emerald-600 to-green-600 px-6 py-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
-                      <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
-                        <Plus className="h-6 w-6 text-white" />
+                      <div className="p-2 bg-white/20 backdrop-blur-sm rounded-lg">
+                        <Plus className="h-5 w-5 text-white" />
                       </div>
                       <div>
-                        <h2 className="text-2xl font-bold text-white">
+                        <h2 className="text-xl font-bold text-white">
                           {editingShipment ? 'Edit Shipment' : 'New Shipment'}
                         </h2>
-                        <p className="text-emerald-100 text-sm mt-1">Enter shipment details below</p>
+                        <p className="text-emerald-100 text-xs mt-1">Enter shipment details below</p>
                       </div>
                     </div>
                     <button
@@ -1101,7 +1107,7 @@ export default function ShipmentRegistration() {
                 </div>
 
                 {/* Modal Body */}
-                <form onSubmit={handleSubmit} className="p-8 overflow-y-auto max-h-[calc(90vh-180px)] space-y-6">
+                <form onSubmit={handleSubmit} className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
                   {/* Shipment Info Section */}
                   <div>
                     <div className="flex items-center space-x-2 mb-4">
@@ -1392,19 +1398,22 @@ export default function ShipmentRegistration() {
                 </form>
               </motion.div>
             </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>,
+          document.body
+        )}
 
         {/* ============================================ */}
         {/* STEP 1: BRAND/MODEL SELECTION MODAL */}
         {/* ============================================ */}
-        <AnimatePresence>
-          {showBrandModal && (
+        {createPortal(
+          <AnimatePresence>
+            {showBrandModal && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
               onClick={() => setShowBrandModal(false)}
             >
               <motion.div
@@ -1482,19 +1491,22 @@ export default function ShipmentRegistration() {
                 </div>
               </motion.div>
             </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>,
+          document.body
+        )}
 
         {/* ============================================ */}
         {/* STEP 2: SIZE SELECTION MODAL */}
         {/* ============================================ */}
-        <AnimatePresence>
-          {showSizeModal && selectedBrand && (
+        {createPortal(
+          <AnimatePresence>
+            {showSizeModal && selectedBrand && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
               onClick={() => {
                 setShowSizeModal(false);
                 setShowBrandModal(true); // Go back to brand selection
@@ -1590,8 +1602,10 @@ export default function ShipmentRegistration() {
                 </div>
               </motion.div>
             </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>,
+          document.body
+        )}
 
         {/* ============================================ */}
         {/* OLD PRODUCT PICKER MODAL (KEPT FOR FALLBACK) */}
@@ -1602,7 +1616,7 @@ export default function ShipmentRegistration() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
               onClick={() => setShowProductDropdown(false)}
             >
               <motion.div
@@ -1724,13 +1738,14 @@ export default function ShipmentRegistration() {
         {/* ============================================ */}
         {/* QUANTITY INPUT MODAL */}
         {/* ============================================ */}
-        <AnimatePresence>
-          {showQuantityModal && quantityModalProduct && (
+        {createPortal(
+          <AnimatePresence>
+            {showQuantityModal && quantityModalProduct && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[120] p-4"
               onClick={() => {
                 setShowQuantityModal(false);
                 setQuantityModalProduct(null);
@@ -1838,8 +1853,10 @@ export default function ShipmentRegistration() {
                 </div>
               </motion.div>
             </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>,
+          document.body
+        )}
 
         {/* ============================================ */}
         {/* POSITION ASSIGNMENT MODAL */}
@@ -1850,7 +1867,7 @@ export default function ShipmentRegistration() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[110] p-4"
               onClick={() => {
                 setShowPositionModal(false);
                 setEditingProductIndex(null);
@@ -2411,7 +2428,6 @@ export default function ShipmentRegistration() {
               {filteredShipments.map((shipment, index) => {
                 const statusConfig = getStatusConfig(shipment.status);
                 const StatusIcon = statusConfig.icon;
-                const isDeleting = deleteConfirm === shipment.id;
                 const canCancel = true; // Allow deleting shipments at any status
 
                 return (
@@ -2495,11 +2511,7 @@ export default function ShipmentRegistration() {
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => handleDeleteClick(shipment)}
-                            className={`flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 font-medium ${
-                              isDeleting
-                                ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white'
-                                : 'bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 hover:from-red-50 hover:to-rose-50 hover:text-red-600'
-                            }`}
+                            className="flex-1 inline-flex items-center justify-center px-4 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 font-medium bg-gradient-to-r from-slate-100 to-slate-200 text-slate-700 hover:from-red-50 hover:to-rose-50 hover:text-red-600"
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Cancel
@@ -2507,50 +2519,6 @@ export default function ShipmentRegistration() {
                         )}
                       </div>
 
-                      {/* Delete Confirmation */}
-                      <AnimatePresence>
-                        {isDeleting && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="bg-gradient-to-r from-red-50 to-rose-50 border-2 border-red-200 rounded-xl p-4 space-y-3">
-                              <div className="flex items-start space-x-3">
-                                <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-                                <div>
-                                  <p className="text-sm font-semibold text-red-800">Choose Action</p>
-                                  <p className="text-xs text-red-600 mt-1">
-                                    <strong>Cancel:</strong> Marks as CANCELLED (keeps record for audit)<br/>
-                                    <strong>Delete:</strong> Permanently removes shipment + all batches + inventory
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex space-x-2">
-                                <button
-                                  onClick={() => handleCancelShipment(shipment.id)}
-                                  className="flex-1 px-3 py-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-lg font-medium text-sm hover:shadow-lg transition-all"
-                                >
-                                  Cancel Shipment
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteConfirm(shipment.id)}
-                                  className="flex-1 px-3 py-2 bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-lg font-medium text-sm hover:shadow-lg transition-all"
-                                >
-                                  Delete Permanently
-                                </button>
-                                <button
-                                  onClick={() => setDeleteConfirm(null)}
-                                  className="px-4 py-2 bg-white text-slate-700 rounded-lg font-medium text-sm border border-slate-300 hover:bg-slate-50 transition-all"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
                     </div>
                   </motion.div>
                 );
@@ -2559,6 +2527,75 @@ export default function ShipmentRegistration() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {deleteConfirm && (() => {
+          const shipmentToDelete = shipments.find(shipment => shipment.id === deleteConfirm);
+          if (!shipmentToDelete) return null;
+
+          return (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+              onClick={() => setDeleteConfirm(null)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 16 }}
+                onClick={event => event.stopPropagation()}
+                className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+              >
+                <div className="border-b border-red-100 bg-gradient-to-r from-red-50 to-orange-50 p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="rounded-xl bg-red-100 p-3 text-red-600">
+                      <AlertTriangle className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-slate-900">Manage shipment</h2>
+                      <p className="mt-1 text-sm text-slate-600">Choose how to handle this shipment record.</p>
+                    </div>
+                    <button onClick={() => setDeleteConfirm(null)} className="ml-auto rounded-lg p-1 text-slate-400 hover:bg-white hover:text-slate-700" aria-label="Close shipment actions">
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4 p-6">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Selected shipment</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">{shipmentToDelete.shipment_number}</p>
+                    <p className="mt-1 text-sm text-slate-600">Container: {shipmentToDelete.container_number || 'N/A'}</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => handleCancelShipment(shipmentToDelete.id)}
+                      className="flex w-full items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-left transition-colors hover:bg-amber-100"
+                    >
+                      <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                      <span><strong className="block text-sm text-amber-900">Cancel shipment</strong><span className="mt-1 block text-xs text-amber-800">Marks it as CANCELLED and keeps the record for audit history.</span></span>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteConfirm(shipmentToDelete.id)}
+                      className="flex w-full items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-left transition-colors hover:bg-red-100"
+                    >
+                      <Trash2 className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+                      <span><strong className="block text-sm text-red-900">Delete permanently</strong><span className="mt-1 block text-xs text-red-800">Removes the shipment and its related workflow records permanently.</span></span>
+                    </button>
+                  </div>
+
+                  <button onClick={() => setDeleteConfirm(null)} className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                    Keep shipment
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
     </div>
   );
 }

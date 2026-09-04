@@ -291,8 +291,7 @@ export const getShipmentDiscrepancies = async (req, res) => {
       .select(`
         *,
         product:products(id, brand, model, dimensions, sku),
-        reported_by_user:users!reported_by(id, email, full_name),
-        manager_reviewed_by_user:users!manager_reviewed_by(id, email, full_name)
+        shipment:shipments(id, shipment_number)
       `)
       .eq('shipment_id', shipment_id)
       .order('reported_at', { ascending: false });
@@ -302,6 +301,26 @@ export const getShipmentDiscrepancies = async (req, res) => {
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error fetching discrepancies:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getDiscrepancyHistory = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('shipment_discrepancies')
+      .select(`
+        *,
+        product:products(id, brand, model, dimensions, sku),
+        shipment:shipments(id, shipment_number)
+      `)
+      .order('reported_at', { ascending: false });
+
+    if (error) throw error;
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching discrepancy history:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -378,13 +397,22 @@ export const createQcInspection = async (req, res) => {
     } = req.body;
     const user_id = req.user.id;
 
-    // Get total items count
+    const { data: receivingReport } = await supabase
+      .from('receiving_reports')
+      .select('total_expected, total_scanned')
+      .eq('shipment_id', shipment_id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
     const { data: receivedItems } = await supabase
       .from('shipment_received_items')
       .select('received_quantity')
       .eq('shipment_id', shipment_id);
 
-    const totalItems = receivedItems.reduce((sum, item) => sum + item.received_quantity, 0);
+    const totalItems = receivingReport?.total_scanned
+      || receivedItems?.reduce((sum, item) => sum + (item.received_quantity || 0), 0)
+      || 0;
 
     // Generate inspection number
     const inspectionNumber = `QC-${Date.now()}`;
@@ -412,6 +440,10 @@ export const createQcInspection = async (req, res) => {
 
     if (error) throw error;
 
+    // The inspection is immediately actionable for warehouse staff, so keep
+    // the shipment status aligned with the QC inspection status.
+    await updateShipmentStatus(shipment_id, 'INSPECTING');
+
     res.status(201).json({
       success: true,
       message: 'QC inspection created successfully',
@@ -419,6 +451,40 @@ export const createQcInspection = async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating QC inspection:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const createAdHocQcInspection = async (req, res) => {
+  try {
+    const user_id = req.user.id;
+    const inspectionNumber = `QC-ADHOC-${Date.now()}`;
+
+    const { data, error } = await supabase
+      .from('qc_inspections')
+      .insert({
+        shipment_id: null,
+        inspection_number: inspectionNumber,
+        inspector_id: user_id,
+        ready_for_qc_date: new Date().toISOString(),
+        status: 'IN_PROGRESS',
+        total_items: 1,
+        inspection_start_date: new Date().toISOString(),
+        has_deadline: false,
+        deadline_type: 'NONE'
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({
+      success: true,
+      message: 'Ad hoc QC inspection created successfully',
+      data
+    });
+  } catch (error) {
+    console.error('Error creating ad hoc QC inspection:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -904,7 +970,12 @@ export const getPendingQcInspections = async (req, res) => {
 
     if (error) throw error;
 
-    res.json({ success: true, data });
+    const visibleInspections = (data || []).filter(inspection => (
+      !inspection.inspection_number?.startsWith('QC-ADHOC-') ||
+      (inspection.items_inspected || 0) > 0
+    ));
+
+    res.json({ success: true, data: visibleInspections });
   } catch (error) {
     console.error('Error fetching pending QC inspections:', error);
     res.status(500).json({ error: error.message });
@@ -1005,6 +1076,58 @@ export const getPendingDiscrepancies = async (req, res) => {
   } catch (error) {
     console.error('Error fetching pending discrepancies:', error);
     res.status(500).json({ error: error.message });
+  }
+};
+
+export const getQcInspectionReports = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('qc_inspections')
+      .select(`
+        id,
+        inspection_number,
+        shipment_id,
+        status,
+        total_items,
+        items_inspected,
+        good_quality_count,
+        minor_defect_count,
+        major_defect_count,
+        good_quality_percentage,
+        minor_defect_percentage,
+        major_defect_percentage,
+        inspector_id,
+        inspector_notes,
+        overall_assessment,
+        recommendations,
+        inspection_start_date,
+        inspection_end_date,
+        manager_decision,
+        manager_notes,
+        manager_reviewed_by,
+        manager_reviewed_at,
+        created_at,
+        shipments!qc_inspections_shipment_id_fkey (
+          id,
+          shipment_number,
+          container_number
+        )
+      `)
+      .eq('status', 'COMPLETED')
+      .order('inspection_end_date', { ascending: false });
+
+    if (error) throw error;
+
+    const reports = (data || []).map(inspection => ({
+      ...inspection,
+      shipment_number: inspection.shipments?.shipment_number,
+      container_number: inspection.shipments?.container_number
+    }));
+
+    res.json({ success: true, data: reports });
+  } catch (error) {
+    console.error('Error fetching QC inspection reports:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 

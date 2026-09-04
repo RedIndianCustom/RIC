@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Ship, Search, Package, CheckCircle2, Clock, Truck, Box, 
   ChevronDown, ChevronUp, ChevronRight, Send, Bell, Eye,
-  Calendar, User, FileText, AlertCircle
+  Calendar, User, FileText, AlertCircle, XCircle
 } from 'lucide-react';
 import api from '../../../services/api';
 
@@ -197,6 +197,24 @@ export default function IncomingShipmentsEnhanced() {
         label: 'Receiving',
         description: 'Warehouse staff scanning items'
       },
+      'INSPECTING': {
+        bg: 'bg-purple-50',
+        text: 'text-purple-700',
+        icon: AlertCircle,
+        border: 'border-purple-200',
+        badge: 'bg-purple-100 text-purple-800',
+        label: 'Inspecting',
+        description: 'QC inspection in progress'
+      },
+      'ARRIVED': {
+        bg: 'bg-cyan-50',
+        text: 'text-cyan-700',
+        icon: Package,
+        border: 'border-cyan-200',
+        badge: 'bg-cyan-100 text-cyan-800',
+        label: 'Arrived',
+        description: 'Shipment has arrived at the warehouse'
+      },
       'READY_FOR_QC': { 
         bg: 'bg-purple-50', 
         text: 'text-purple-700',
@@ -232,35 +250,48 @@ export default function IncomingShipmentsEnhanced() {
         badge: 'bg-green-100 text-green-800',
         label: 'Received',
         description: 'Legacy status - completed'
+      },
+      'CANCELLED': {
+        bg: 'bg-slate-50',
+        text: 'text-slate-700',
+        icon: XCircle,
+        border: 'border-slate-200',
+        badge: 'bg-slate-100 text-slate-700',
+        label: 'Cancelled',
+        description: 'Shipment was cancelled'
       }
     };
-    return configs[status] || { 
+    const normalizedStatus = status?.toUpperCase();
+    return configs[normalizedStatus] || { 
       bg: 'bg-gray-50', 
       text: 'text-gray-700', 
       icon: Package,
       border: 'border-gray-200',
       badge: 'bg-gray-100 text-gray-800',
-      label: status || 'Unknown',
+      label: normalizedStatus || 'Unknown',
       description: 'Unknown status'
     };
   };
 
+  const getNormalizedStatus = (shipment) => (shipment.status || shipment.shipment_status || '').toUpperCase();
+
   const filteredShipments = shipments.filter(shipment => {
+    const normalizedStatus = getNormalizedStatus(shipment);
     const matchesSearch = 
       shipment.shipment_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       shipment.container_number?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || shipment.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || normalizedStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
   const stats = {
     total: shipments.length,
-    pending: shipments.filter(s => s.status === 'PENDING').length,
-    inTransit: shipments.filter(s => s.status === 'IN_TRANSIT').length,
-    receiving: shipments.filter(s => s.status === 'RECEIVING').length,
-    readyForQC: shipments.filter(s => s.status === 'READY_FOR_QC').length,
-    approved: shipments.filter(s => s.status === 'APPROVED').length,
-    completed: shipments.filter(s => ['COMPLETED', 'RECEIVED'].includes(s.status)).length
+    pending: shipments.filter(s => getNormalizedStatus(s) === 'PENDING').length,
+    inTransit: shipments.filter(s => getNormalizedStatus(s) === 'IN_TRANSIT').length,
+    receiving: shipments.filter(s => ['RECEIVING', 'INSPECTING'].includes(getNormalizedStatus(s))).length,
+    readyForQC: shipments.filter(s => ['READY_FOR_QC', 'ARRIVED'].includes(getNormalizedStatus(s))).length,
+    approved: shipments.filter(s => getNormalizedStatus(s) === 'APPROVED').length,
+    completed: shipments.filter(s => ['COMPLETED', 'RECEIVED'].includes(getNormalizedStatus(s))).length
   };
 
   return (
@@ -378,10 +409,13 @@ export default function IncomingShipmentsEnhanced() {
             <option value="PENDING">Pending</option>
             <option value="IN_TRANSIT">In Transit</option>
             <option value="RECEIVING">Receiving</option>
+            <option value="INSPECTING">Inspecting</option>
+            <option value="ARRIVED">Arrived</option>
             <option value="READY_FOR_QC">Awaiting Approval</option>
             <option value="APPROVED">Approved</option>
             <option value="COMPLETED">Completed</option>
             <option value="RECEIVED">Received (Legacy)</option>
+            <option value="CANCELLED">Cancelled</option>
           </select>
         </div>
       </div>
@@ -400,10 +434,11 @@ export default function IncomingShipmentsEnhanced() {
           </div>
         ) : (
           filteredShipments.map((shipment) => {
-            const statusConfig = getStatusConfig(shipment.status);
+            const shipmentStatus = getNormalizedStatus(shipment);
+            const statusConfig = getStatusConfig(shipmentStatus);
             const StatusIcon = statusConfig.icon;
             const isExpanded = expandedId === shipment.id;
-            const canSendToWarehouse = shipment.status === 'PENDING';
+            const canSendToWarehouse = shipmentStatus === 'PENDING';
 
             return (
               <motion.div
